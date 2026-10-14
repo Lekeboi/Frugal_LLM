@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
+import shutil
+import subprocess
 import sys
+from collections.abc import Iterator
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -141,7 +146,7 @@ def bench(
     view = LiveView(config)
     started_at = datetime.now(UTC)
     try:
-        with Live(view, console=console, refresh_per_second=2):
+        with keep_awake(), Live(view, console=console, refresh_per_second=2):
             runs = asyncio.run(
                 run_sweep(config, prompt_source, on_request=view.on_request, on_run=view.on_run)
             )
@@ -180,6 +185,34 @@ def report_command(
     sys.stdout.flush()
     if write:
         results.with_suffix(".md").write_text(markdown, encoding="utf-8", newline="\n")
+
+
+@contextlib.contextmanager
+def keep_awake() -> Iterator[None]:
+    """Best effort: stop the machine idling into sleep mid-benchmark.
+
+    A laptop that sleeps during a run freezes the client mid-request and wrecks that
+    run (the report detects and excludes it, but the run is still lost). Closing the
+    lid or a battery policy can still force sleep.
+    """
+    if sys.platform == "win32":
+        import ctypes
+
+        es_continuous, es_system_required = 0x80000000, 0x00000001
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetThreadExecutionState(es_continuous | es_system_required)
+        try:
+            yield
+        finally:
+            kernel32.SetThreadExecutionState(es_continuous)
+    elif sys.platform == "darwin" and shutil.which("caffeinate"):
+        proc = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
+        try:
+            yield
+        finally:
+            proc.terminate()
+    else:
+        yield
 
 
 class LiveView:

@@ -20,6 +20,17 @@ if TYPE_CHECKING:
     from frugal_llm.bench import RunResult
 
 
+# A run during which the client's event loop froze for longer than this is invalid:
+# the machine slept, was suspended, or was too overloaded to time anything. Such runs
+# are excluded from every aggregate and named in the report; their samples stay in
+# the JSON.
+STALL_MS = 1000.0
+
+
+def is_stalled(run: RunResult) -> bool:
+    return run.client_lag_max_ms is not None and run.client_lag_max_ms > STALL_MS
+
+
 def percentiles(samples: Iterable[float], ps: Sequence[int]) -> dict[int, float | None]:
     """Percentiles via ``statistics.quantiles(method="inclusive")``.
 
@@ -54,6 +65,7 @@ class Spread:
 class LevelSummary:
     concurrency: int
     runs: int
+    excluded_runs: int
     attempted: int
     completed: int
     requests_per_run: int
@@ -66,6 +78,8 @@ class LevelSummary:
     errors: dict[str, int]
     token_count_sources: tuple[str, ...]
     client_lag_p99_ms: float | None
+    output_tokens_median: float | None = None
+    prompt_tokens_median: float | None = None
 
     @property
     def error_rate(self) -> float:
@@ -86,11 +100,15 @@ def run_requests_per_sec(run: RunResult) -> float:
 
 
 def summarise_level(runs: Sequence[RunResult], cost_per_hour: float | None) -> LevelSummary:
-    """Aggregate the repeats of one concurrency level."""
+    """Aggregate the repeats of one concurrency level, leaving out stalled runs."""
     levels = {run.concurrency for run in runs}
     if len(levels) != 1:
         raise ValueError(f"refusing to pool samples across concurrency levels {sorted(levels)}")
 
+    concurrency = runs[0].concurrency
+    requests_per_run = max(len(run.requests) for run in runs)
+    excluded = sum(1 for run in runs if is_stalled(run))
+    runs = [run for run in runs if not is_stalled(run)]
     requests = [r for run in runs for r in run.requests]
     ok = [r for r in requests if r.ok]
     tps = [run_output_tokens_per_sec(run) for run in runs]
@@ -100,11 +118,12 @@ def summarise_level(runs: Sequence[RunResult], cost_per_hour: float | None) -> L
     lags = [run.client_lag_p99_ms for run in runs if run.client_lag_p99_ms is not None]
 
     return LevelSummary(
-        concurrency=runs[0].concurrency,
+        concurrency=concurrency,
         runs=len(runs),
+        excluded_runs=excluded,
         attempted=len(requests),
         completed=len(ok),
-        requests_per_run=max(len(run.requests) for run in runs),
+        requests_per_run=requests_per_run,
         ttft_ms=percentiles((r.ttft_ms for r in ok), (50, 95, 99)),
         itl_ms=percentiles((r.itl_ms for r in ok if r.itl_ms is not None), (50, 95)),
         e2e_ms=percentiles((r.e2e_ms for r in ok), (50, 95, 99)),
@@ -114,7 +133,13 @@ def summarise_level(runs: Sequence[RunResult], cost_per_hour: float | None) -> L
         errors=dict(Counter(r.error for r in requests if not r.ok).most_common()),
         token_count_sources=tuple(sorted({r.token_count_source for r in ok})),
         client_lag_p99_ms=max(lags, default=None),
+        output_tokens_median=_median([r.output_tokens for r in ok]),
+        prompt_tokens_median=_median([r.prompt_tokens for r in ok if r.prompt_tokens is not None]),
     )
+
+
+def _median(values: Sequence[float]) -> float | None:
+    return statistics.median(values) if values else None
 
 
 def summarise(runs: Sequence[RunResult], cost_per_hour: float | None) -> list[LevelSummary]:

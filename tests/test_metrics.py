@@ -74,3 +74,19 @@ def test_token_sources_and_no_successes():
     assert s.token_count_sources == ("chunks", "usage")
     s = summarise_level([run([req(error="http_500")], window=0.0)], 1.0)
     assert s.ttft_ms[50] is None and s.cost_per_million is None and s.error_rate == 1.0
+
+
+def test_stalled_runs_are_excluded_from_every_aggregate():
+    good = RunResult(1, 0, 1.0, [req(ttft=100, tokens=50)], 10.0, 20.0)
+    # The machine slept mid-run: one 20-minute lag sample, as seen on a real laptop.
+    slept = RunResult(1, 1, 1200.0, [req(ttft=100, tokens=50)], 11.0, 1_217_591.5)
+    s = summarise_level([good, slept], None)
+    assert (s.runs, s.excluded_runs) == (1, 1)
+    assert s.output_tokens_per_sec == Spread(50.0, 50.0, 50.0)
+    assert s.attempted == 1
+
+
+def test_level_with_only_stalled_runs_reports_nothing():
+    slept = RunResult(1, 0, 1200.0, [req()], 11.0, 5000.0)
+    s = summarise_level([slept], 1.0)
+    assert s.runs == 0 and s.ttft_ms[50] is None and s.output_tokens_per_sec is None

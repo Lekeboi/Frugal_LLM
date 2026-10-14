@@ -182,3 +182,26 @@ def test_cli_unreachable_endpoint_fails_loudly_and_writes_nothing(tmp_path):
 def test_cli_rejects_bad_concurrency():
     result = runner.invoke(app, ["bench", "--url", "http://x/v1", "--model", "m", "-c", "4,0"])
     assert result.exit_code != 0
+
+
+def test_stalled_run_is_named_and_excluded():
+    slept = _known_run(repeat=1, window_seconds=1429.0, client_lag_max_ms=1_217_591.5)
+    doc = build_document(_config(repeats=2), [_known_run(), slept], STARTED)
+    md = render_markdown(doc)
+    assert "c=1 repeat 1: EXCLUDED. The client was frozen for 1217.6s" in md
+    # The table only reflects the valid run: 30.0 tok/s, no range from the stalled one.
+    assert "|        30.0 |" in md
+
+
+def test_keep_awake_is_safe_to_enter_and_exit():
+    from frugal_llm.cli import keep_awake
+
+    with keep_awake():
+        pass
+
+
+def test_notes_report_actual_output_and_prompt_lengths():
+    run = RunResult(1, 0, 1.0, [req(100, tokens=60), req(110, tokens=80)])
+    text = "\n".join(notes(summarise([run], None), build_document(_config(), [run], STARTED)))
+    assert "Median output length was below --max-tokens 128 (c=1: 70)" in text
+    assert "Prompt length as counted by the server: median 203 tokens (requested ≈200" in text

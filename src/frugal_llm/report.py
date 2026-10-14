@@ -17,7 +17,7 @@ from rich.table import Table
 
 from frugal_llm import __version__
 from frugal_llm.bench import HTTP_VERSION, BenchConfig, RequestResult, RunResult
-from frugal_llm.metrics import LevelSummary, Spread, summarise
+from frugal_llm.metrics import STALL_MS, LevelSummary, Spread, summarise
 
 SCHEMA_VERSION = "0.1"
 # Above this p99 event-loop lag the client, not the server, may be shaping latencies.
@@ -176,7 +176,7 @@ def notes(summaries: list[LevelSummary], doc: dict) -> list[str]:
     out = []
     if cfg["repeats"] > 1:
         out.append(
-            f"Latency percentiles pool all {cfg['repeats']} repeats at each level (never "
+            f"Latency percentiles pool the {cfg['repeats']} repeats at each level (never "
             "across levels). Throughput and cost show the median run (min-max)."
         )
     chunk_levels = [s.concurrency for s in summaries if "chunks" in s.token_count_sources]
@@ -186,7 +186,36 @@ def notes(summaries: list[LevelSummary], doc: dict) -> list[str]:
             "because the server did not report `usage`. Servers that send several tokens "
             "per chunk are undercounted, which understates throughput."
         )
+    for run in doc["runs"]:
+        lag = run.get("client_lag_max_ms")
+        if lag is not None and lag > STALL_MS:
+            out.append(
+                f"c={run['concurrency']} repeat {run['repeat']}: EXCLUDED. The client was frozen "
+                f"for {lag / 1000:.1f}s during this run (system sleep or suspension?), so its "
+                "timings are meaningless. Its samples remain in the JSON; re-run to replace it."
+            )
+    max_tokens = cfg["max_tokens"]
+    short = [
+        s
+        for s in summaries
+        if s.output_tokens_median is not None and s.output_tokens_median < 0.9 * max_tokens
+    ]
+    if short:
+        detail = ", ".join(f"c={s.concurrency}: {s.output_tokens_median:.0f}" for s in short)
+        out.append(
+            f"Median output length was below --max-tokens {max_tokens} ({detail}): the model "
+            "often stopped early. Throughput and cost reflect these shorter generations."
+        )
+    prompt_medians = [s.prompt_tokens_median for s in summaries if s.prompt_tokens_median]
+    if prompt_medians and not cfg.get("prompts"):
+        out.append(
+            f"Prompt length as counted by the server: median {min(prompt_medians):.0f}"
+            + (f"-{max(prompt_medians):.0f}" if min(prompt_medians) != max(prompt_medians) else "")
+            + f" tokens (requested ≈{cfg['prompt_tokens']}, including the chat template)."
+        )
     for s in summaries:
+        if s.runs == 0:
+            out.append(f"c={s.concurrency}: no valid runs; every run was excluded.")
         if s.errors:
             detail = ", ".join(f"{n} {kind}" for kind, n in s.errors.items())
             out.append(
