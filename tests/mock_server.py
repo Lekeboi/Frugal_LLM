@@ -1,0 +1,218 @@
+"""A deterministic mock of the OpenAI streaming chat-completions endpoint.
+
+This is how the test suite proves the harness measures the server rather than
+its own behaviour. It emits chunks at precisely controlled intervals and records
+how many requests were genuinely in flight at the same time.
+
+It is a bare ASGI app (no framework) served by a real uvicorn server on a real
+socket, because in-process transports buffer the response and would hide
+streaming bugs.
+
+Run standalone for manual poking:
+
+    uv run python tests/mock_server.py --port 8765 --first-delay 0.5 --chunk-delay 0.05
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import socket
+import threading
+import time
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+
+import uvicorn
+
+
+@dataclass
+class MockBehaviour:
+    first_chunk_delay: float = 0.0
+    """Seconds between receiving the request and the first content chunk (prefill)."""
+    chunk_delay: float = 0.0
+    """Seconds between consecutive content chunks (decode)."""
+    output_tokens: int | None = None
+    """Content chunks to emit. ``None`` means honour the request's ``max_tokens``."""
+    send_usage: bool = True
+    """Send a final ``usage`` chunk when the client asks via ``stream_options``."""
+    status_code: int = 200
+    """Non-200 makes every request fail with this status."""
+
+
+@dataclass
+class MockStats:
+    requests_received: int = 0
+    in_flight: int = 0
+    max_in_flight: int = 0
+    request_bodies: list[dict] = field(default_factory=list)
+
+
+class MockServer:
+    """ASGI app speaking ``POST /v1/chat/completions`` with ``stream: true``."""
+
+    def __init__(self, behaviour: MockBehaviour | None = None) -> None:
+        self.behaviour = behaviour or MockBehaviour()
+        self.stats = MockStats()
+
+    def reset_stats(self) -> None:
+        self.stats = MockStats()
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "lifespan":
+            while True:
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+
+        if scope["type"] != "http":
+            return
+
+        if scope["method"] != "POST" or not scope["path"].endswith("/chat/completions"):
+            await _send_json(send, 404, {"error": {"message": "not found"}})
+            return
+
+        body = await _read_body(receive)
+        self.stats.requests_received += 1
+        self.stats.in_flight += 1
+        self.stats.max_in_flight = max(self.stats.max_in_flight, self.stats.in_flight)
+        try:
+            await self._handle(json.loads(body), send)
+        finally:
+            self.stats.in_flight -= 1
+
+    async def _handle(self, request: dict, send) -> None:
+        self.stats.request_bodies.append(request)
+        b = self.behaviour
+
+        if b.status_code != 200:
+            await _send_json(send, b.status_code, {"error": {"message": "mock failure"}})
+            return
+        if not request.get("stream"):
+            await _send_json(send, 400, {"error": {"message": "mock only supports stream=true"}})
+            return
+
+        n_tokens = b.output_tokens if b.output_tokens is not None else request.get("max_tokens", 16)
+        want_usage = bool((request.get("stream_options") or {}).get("include_usage"))
+        prompt_tokens = sum(len(str(m.get("content", "")).split()) for m in request["messages"])
+        created = int(time.time())
+
+        def chunk(delta: dict, finish_reason: str | None = None) -> dict:
+            return {
+                "id": "chatcmpl-mock",
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": request.get("model", "mock"),
+                "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+            }
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/event-stream"),
+                    (b"cache-control", b"no-cache"),
+                ],
+            }
+        )
+
+        # Real servers send a role-only chunk with empty content straight away.
+        # TTFT must not be fooled by it: it carries no content.
+        await _send_event(send, chunk({"role": "assistant", "content": ""}))
+
+        for i in range(n_tokens):
+            await asyncio.sleep(b.first_chunk_delay if i == 0 else b.chunk_delay)
+            await _send_event(send, chunk({"content": f"tok{i} "}))
+
+        await _send_event(send, chunk({}, finish_reason="length"))
+
+        if want_usage and b.send_usage:
+            usage_chunk = chunk({})
+            usage_chunk["choices"] = []
+            usage_chunk["usage"] = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": n_tokens,
+                "total_tokens": prompt_tokens + n_tokens,
+            }
+            await _send_event(send, usage_chunk)
+
+        await send({"type": "http.response.body", "body": b"data: [DONE]\n\n", "more_body": False})
+
+
+async def _read_body(receive) -> bytes:
+    body = b""
+    while True:
+        message = await receive()
+        body += message.get("body", b"")
+        if not message.get("more_body"):
+            return body
+
+
+async def _send_event(send, payload: dict) -> None:
+    data = f"data: {json.dumps(payload)}\n\n".encode()
+    await send({"type": "http.response.body", "body": data, "more_body": True})
+
+
+async def _send_json(send, status: int, payload: dict) -> None:
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [(b"content-type", b"application/json")],
+        }
+    )
+    await send({"type": "http.response.body", "body": json.dumps(payload).encode()})
+
+
+@contextlib.contextmanager
+def run_mock_server(
+    behaviour: MockBehaviour | None = None, port: int = 0
+) -> Iterator[tuple[MockServer, str]]:
+    """Serve a MockServer on a real socket in a background thread.
+
+    Yields ``(server, base_url)`` where ``base_url`` ends in ``/v1``.
+    """
+    app = MockServer(behaviour)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", port))
+    actual_port = sock.getsockname()[1]
+
+    config = uvicorn.Config(app, log_level="warning", lifespan="on", backlog=2048)
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    thread.start()
+
+    deadline = time.monotonic() + 10
+    while not server.started:
+        if time.monotonic() > deadline or not thread.is_alive():
+            raise RuntimeError("mock server failed to start")
+        time.sleep(0.01)
+
+    try:
+        yield app, f"http://127.0.0.1:{actual_port}/v1"
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        sock.close()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the frugal-llm mock endpoint.")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--first-delay", type=float, default=0.5)
+    parser.add_argument("--chunk-delay", type=float, default=0.05)
+    args = parser.parse_args()
+
+    behaviour = MockBehaviour(first_chunk_delay=args.first_delay, chunk_delay=args.chunk_delay)
+    with run_mock_server(behaviour, port=args.port) as (_, url):
+        print(f"mock endpoint at {url} — Ctrl+C to stop")
+        with contextlib.suppress(KeyboardInterrupt):
+            threading.Event().wait()
