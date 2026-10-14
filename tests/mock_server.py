@@ -48,6 +48,8 @@ class MockBehaviour:
     """Send a final ``usage`` chunk when the client asks via ``stream_options``."""
     status_code: int = 200
     """Non-200 makes every request fail with this status."""
+    fail_every: int = 0
+    """When > 0, every k-th request received fails with HTTP 503 (partial failures)."""
 
 
 @dataclass
@@ -121,6 +123,9 @@ class MockServer:
     async def _handle(self, request: dict, send) -> None:
         b = self.behaviour
 
+        if b.fail_every and self.stats.requests_received % b.fail_every == 0:
+            await _send_json(send, 503, {"error": {"message": "mock partial failure"}})
+            return
         if b.status_code != 200:
             await _send_json(send, b.status_code, {"error": {"message": "mock failure"}})
             return

@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import itertools
 import json
 import ssl
 import time
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 
 import httpx
+
+from frugal_llm.metrics import percentiles
 
 # HTTP/2 is deliberately off: multiplexing turns N concurrent requests into N streams
 # on one connection, which changes what "concurrency" means. Recorded in the results.
@@ -240,3 +244,193 @@ async def stream_one(
         prompt_tokens=(usage or {}).get("prompt_tokens"),
         token_count_source="usage" if completion_tokens is not None else "chunks",
     )
+
+
+# --- step 4: concurrency, warm-up, repeats -------------------------------------------
+
+# Failures that mean "nothing is listening", as opposed to a server that answered badly.
+UNREACHABLE = frozenset({"connect_error", "connect_timeout"})
+
+
+class BenchAborted(Exception):
+    """The endpoint cannot be benchmarked; partial data must not be reported."""
+
+
+@dataclass(frozen=True)
+class RunResult:
+    """One ``(concurrency, repeat)`` run. Never merged with another run until report time."""
+
+    concurrency: int
+    repeat: int
+    window_seconds: float
+    requests: list[RequestResult]
+    client_lag_p99_ms: float | None = None
+    client_lag_max_ms: float | None = None
+
+
+class PromptSource(Protocol):
+    def get(self, index: int) -> str: ...
+
+
+class LoopLagMonitor:
+    """Measures how late the client's own event loop wakes up during a run.
+
+    Every timestamp this tool takes is only as good as the loop's responsiveness: a
+    loop busy for 200 ms adds up to 200 ms to whatever TTFT it is timing. This samples
+    the lateness of a short sleep so the report can flag runs where the client, not the
+    server, was the bottleneck. (Baseline lateness is a few ms, ~15 ms on Windows.)
+    """
+
+    INTERVAL_S = 0.01
+
+    def __init__(self) -> None:
+        self.samples_ms: list[float] = []
+        self._task: asyncio.Task | None = None
+
+    async def _sample(self) -> None:
+        while True:
+            t0 = time.perf_counter()
+            await asyncio.sleep(self.INTERVAL_S)
+            self.samples_ms.append((time.perf_counter() - t0 - self.INTERVAL_S) * 1000)
+
+    async def __aenter__(self) -> LoopLagMonitor:
+        self._task = asyncio.create_task(self._sample())
+        return self
+
+    async def __aexit__(self, *exc_info) -> None:
+        self._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
+
+
+async def _drive(
+    clients: list[httpx.AsyncClient],
+    total: int,
+    send: Callable[[httpx.AsyncClient], Awaitable[RequestResult]],
+) -> list[RequestResult]:
+    """Send ``total`` requests with one worker per client, each working back to back.
+
+    Closed loop: exactly ``len(clients)`` requests are in flight until the work runs
+    out. Every worker claims its first request before any can finish, so when
+    ``total >= len(clients)`` every client (and its connection) is used.
+    """
+    results: list[RequestResult] = []
+    claimed = itertools.count()
+
+    async def worker(client: httpx.AsyncClient) -> None:
+        while next(claimed) < total:
+            results.append(await send(client))
+
+    async with asyncio.TaskGroup() as tg:
+        for client in clients:
+            tg.create_task(worker(client))
+    return results
+
+
+def _abort_if_unusable(results: list[RequestResult], phase: str) -> None:
+    if not results or any(r.ok for r in results):
+        return
+    kinds = sorted({r.error for r in results})
+    if set(kinds) <= UNREACHABLE:
+        raise BenchAborted(f"endpoint unreachable during {phase} ({', '.join(kinds)})")
+    raise BenchAborted(f"every {phase} request failed ({', '.join(kinds)})")
+
+
+async def run_level(
+    config: BenchConfig,
+    concurrency: int,
+    prompts: PromptSource,
+    prompt_ids: Iterator[int],
+    *,
+    on_request: Callable[[RequestResult], None] | None = None,
+    on_run: Callable[[RunResult], None] | None = None,
+) -> list[RunResult]:
+    """Warm up once, then run every repeat at one concurrency level.
+
+    Warm-up sends ``max(warmup, concurrency)`` requests at full concurrency, so every
+    worker's connection is open (TCP/TLS paid) and the server is warm before the first
+    measured request. Its results are discarded. Repeats reuse the warm connections.
+    """
+
+    async def send(client: httpx.AsyncClient) -> RequestResult:
+        return await stream_one(
+            client,
+            model=config.model,
+            prompt=prompts.get(next(prompt_ids)),
+            max_tokens=config.max_tokens,
+            deadline_s=config.timeout,
+        )
+
+    async def send_measured(client: httpx.AsyncClient) -> RequestResult:
+        result = await send(client)
+        if on_request:
+            on_request(result)
+        return result
+
+    runs: list[RunResult] = []
+    async with contextlib.AsyncExitStack() as stack:
+        clients = [await stack.enter_async_context(make_client(config)) for _ in range(concurrency)]
+        warmup = await _drive(clients, max(config.warmup, concurrency), send)
+        _abort_if_unusable(warmup, "warm-up")
+
+        for repeat in range(config.repeats):
+            async with LoopLagMonitor() as lag:
+                results = await _drive(clients, config.requests, send_measured)
+            _abort_if_unusable(results, f"c={concurrency} repeat {repeat}")
+            # The window opens when the first measured request is sent and closes when
+            # the last one completes; warm-up is outside it.
+            window = max(r.finished_at_s for r in results) - min(r.sent_at_s for r in results)
+            lag_p = percentiles(lag.samples_ms, (99,))
+            run = RunResult(
+                concurrency=concurrency,
+                repeat=repeat,
+                window_seconds=window,
+                requests=results,
+                client_lag_p99_ms=lag_p[99],
+                client_lag_max_ms=max(lag.samples_ms, default=None),
+            )
+            runs.append(run)
+            if on_run:
+                on_run(run)
+    return runs
+
+
+async def preflight(config: BenchConfig, prompt: str) -> None:
+    """One request before anything else, so a wrong URL, model or key fails in one
+    round trip with a clear reason instead of after a whole warm-up of failures."""
+    async with make_client(config) as client:
+        result = await stream_one(
+            client, model=config.model, prompt=prompt, max_tokens=1, deadline_s=config.timeout
+        )
+    if result.ok:
+        return
+    if result.error in UNREACHABLE:
+        raise BenchAborted(f"endpoint unreachable ({result.error})")
+    hint = {
+        "http_401": "check --api-key / FRUGAL_LLM_API_KEY",
+        "http_403": "check --api-key / FRUGAL_LLM_API_KEY",
+        "http_404": "check that --url ends in /v1 and --model is a model the server knows",
+    }.get(result.error, "")
+    raise BenchAborted(f"preflight request failed ({result.error})" + (f": {hint}" if hint else ""))
+
+
+async def run_sweep(
+    config: BenchConfig,
+    prompts: PromptSource,
+    *,
+    on_request: Callable[[RequestResult], None] | None = None,
+    on_run: Callable[[RunResult], None] | None = None,
+) -> list[RunResult]:
+    """Run every concurrency level in order, never overlapping.
+
+    Prompt ids increase across the whole sweep so no two requests share a prompt,
+    which keeps server-side prefix caches from flattering TTFT.
+    """
+    prompt_ids = itertools.count()
+    await preflight(config, prompts.get(next(prompt_ids)))
+    runs: list[RunResult] = []
+    for concurrency in config.concurrency:
+        runs += await run_level(
+            config, concurrency, prompts, prompt_ids, on_request=on_request, on_run=on_run
+        )
+    return runs

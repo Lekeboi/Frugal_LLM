@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import socket
 import time
 from pathlib import Path
 
@@ -11,13 +12,18 @@ from conftest import assert_result_invariants
 from mock_server import MockBehaviour
 
 from frugal_llm.bench import (
+    BenchAborted,
     BenchConfig,
+    LoopLagMonitor,
+    RunResult,
     classify_error,
     make_client,
     request_timeout,
+    run_sweep,
     ssl_context,
     stream_one,
 )
+from frugal_llm.metrics import summarise
 
 
 def _config(url: str, **overrides) -> BenchConfig:
@@ -242,3 +248,142 @@ async def test_blocking_the_loop_inflates_measured_ttft(mock_endpoint):
     # The chunk sat in the socket buffer until the loop woke: TTFT reads ~650 ms, a
     # 3x error that no server-side change caused.
     assert distorted > (0.05 + BLOCK_S) * 1000 - TOL_MS / 2
+
+
+# --- step 4: concurrency, warm-up, repeats -------------------------------------------
+
+
+class RecordingPrompts:
+    def __init__(self) -> None:
+        self.ids: list[int] = []
+
+    def get(self, index: int) -> str:
+        self.ids.append(index)
+        return f"prompt {index}"
+
+
+async def _sweep(url: str, prompts=None, **overrides) -> list[RunResult]:
+    config = _config(url, **overrides)
+    runs = await run_sweep(config, prompts or RecordingPrompts())
+    # SPEC row "TTFT < E2E always": checked for every request of every test sweep.
+    for run in runs:
+        for r in run.requests:
+            assert_result_invariants(r)
+    return runs
+
+
+async def test_concurrency_is_real(mock_endpoint):
+    """SPEC row: at -c 16 the server must observe 16 in flight, not 1."""
+    with mock_endpoint(MockBehaviour(first_chunk_delay=0.2)) as (server, url):
+        await _sweep(url, concurrency=[16], requests=32)
+        assert server.stats.max_in_flight == 16
+
+
+async def test_concurrency_is_real_past_default_pool(mock_endpoint):
+    with mock_endpoint(MockBehaviour(first_chunk_delay=0.3)) as (server, url):
+        await _sweep(
+            url, concurrency=[CONCURRENCY_PAST_DEFAULT_POOL], requests=CONCURRENCY_PAST_DEFAULT_POOL
+        )
+        assert server.stats.max_in_flight == CONCURRENCY_PAST_DEFAULT_POOL
+
+
+async def test_warmup_is_excluded(mock_endpoint):
+    """SPEC row: 5 warm-up + 20 measured yields exactly 20 samples."""
+    with mock_endpoint() as (server, url):
+        runs = await _sweep(url, concurrency=[1], warmup=5, requests=20)
+        assert server.stats.requests_received == 1 + 25  # preflight + warm-up + measured
+    assert len(runs) == 1 and len(runs[0].requests) == 20
+
+
+async def test_warmup_opens_every_workers_connection(mock_endpoint):
+    with mock_endpoint() as (server, url):
+        await _sweep(url, concurrency=[8], warmup=2, requests=8)
+        assert server.stats.requests_received == 1 + 8 + 8  # preflight, max(warmup, c), measured
+
+
+async def test_no_pooling_across_levels(mock_endpoint):
+    """SPEC row: sweeping 1,4 produces two separate result objects."""
+    with mock_endpoint() as (_, url):
+        runs = await _sweep(url, concurrency=[1, 4], requests=8)
+    assert [run.concurrency for run in runs] == [1, 4]
+    summaries = summarise(runs, None)
+    assert [(s.concurrency, s.attempted) for s in summaries] == [(1, 8), (4, 8)]
+
+
+async def test_repeats_are_separate_runs(mock_endpoint):
+    with mock_endpoint() as (_, url):
+        runs = await _sweep(url, concurrency=[2], requests=6, repeats=3)
+    assert [(run.repeat, len(run.requests)) for run in runs] == [(0, 6), (1, 6), (2, 6)]
+
+
+async def test_window_spans_first_send_to_last_completion(mock_endpoint):
+    with mock_endpoint(MockBehaviour(first_chunk_delay=0.1)) as (_, url):
+        (run,) = await _sweep(url, concurrency=[1], requests=5)
+    assert abs(run.window_seconds - 0.5) < 0.15
+    # Back to back at c=1, the window is the requests' own durations end to end.
+    assert run.window_seconds >= sum(r.e2e_ms for r in run.requests) / 1000 - 0.01
+
+
+async def test_every_request_gets_a_distinct_prompt(mock_endpoint):
+    prompts = RecordingPrompts()
+    with mock_endpoint() as (_, url):
+        await _sweep(url, prompts, concurrency=[1, 3], warmup=2, requests=5, repeats=2)
+    assert len(prompts.ids) == 1 + (2 + 10) + (3 + 10)  # preflight, then each level
+    assert len(set(prompts.ids)) == len(prompts.ids)
+
+
+async def test_partial_failures_are_measured_not_fatal(mock_endpoint):
+    # c=1: request 1 is preflight, 2 warm-up; measured are 3..12, of which 5 and 10 fail.
+    with mock_endpoint(MockBehaviour(fail_every=5)) as (_, url):
+        (run,) = await _sweep(url, concurrency=[1], requests=10)
+    (summary,) = summarise([run], None)
+    assert summary.errors == {"http_503": 2}
+    assert summary.error_rate == 0.2
+
+
+async def test_failing_endpoint_aborts_loudly(mock_endpoint):
+    with mock_endpoint(MockBehaviour(status_code=503)) as (_, url):
+        with pytest.raises(BenchAborted, match=r"preflight request failed \(http_503\)"):
+            await _sweep(url, concurrency=[2], requests=4)
+
+
+async def test_preflight_explains_a_wrong_url_or_model(mock_endpoint):
+    with mock_endpoint(MockBehaviour(status_code=404)) as (server, url):
+        with pytest.raises(BenchAborted, match="--url ends in /v1 and --model"):
+            await _sweep(url, concurrency=[4], requests=4)
+        assert server.stats.requests_received == 1  # failed fast: no warm-up attempted
+
+
+async def test_unreachable_endpoint_aborts_loudly():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]  # bound but never listening: connections are refused
+        with pytest.raises(BenchAborted, match="unreachable"):
+            await _sweep(f"http://127.0.0.1:{port}/v1", concurrency=[1], requests=1)
+
+
+async def test_progress_callbacks(mock_endpoint):
+    seen_requests, seen_runs = [], []
+    with mock_endpoint() as (_, url):
+        await run_sweep(
+            _config(url, concurrency=[1, 2], requests=3, repeats=2, warmup=1),
+            RecordingPrompts(),
+            on_request=seen_requests.append,
+            on_run=seen_runs.append,
+        )
+    assert len(seen_requests) == 2 * 2 * 3  # measured only, never warm-up
+    assert [(r.concurrency, r.repeat) for r in seen_runs] == [(1, 0), (1, 1), (2, 0), (2, 1)]
+
+
+async def test_loop_lag_monitor_sees_a_blocked_loop():
+    async with LoopLagMonitor() as lag:
+        await asyncio.sleep(0.05)
+        time.sleep(0.2)  # noqa: ASYNC251 -- simulate client overhead
+        await asyncio.sleep(0.05)
+    assert max(lag.samples_ms) > 150
+
+
+async def test_runs_record_client_lag(mock_endpoint):
+    with mock_endpoint() as (_, url):
+        (run,) = await _sweep(url, concurrency=[1], requests=3)
+    assert run.client_lag_p99_ms is not None and run.client_lag_max_ms is not None

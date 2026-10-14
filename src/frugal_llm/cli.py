@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
-import dataclasses
+import sys
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
-from rich.console import Console
-from rich.table import Table
+from rich.console import Console, Group
+from rich.text import Text
 
 from frugal_llm import __version__
-from frugal_llm.bench import BenchConfig
+
+if TYPE_CHECKING:
+    from frugal_llm.bench import BenchConfig, RequestResult, RunResult
+
+# Heavy modules (httpx, the measurement code) are imported inside commands so that
+# --help and --version start instantly.
 
 app = typer.Typer(
     add_completion=False,
@@ -77,18 +82,32 @@ def bench(
         Path | None,
         typer.Option(exists=True, dir_okay=False, help='JSONL of {"prompt": "..."}'),
     ] = None,
-    warmup: Annotated[int, typer.Option(min=0, help="Warm-up requests per level")] = 5,
+    warmup: Annotated[
+        int, typer.Option(min=0, help="Min warm-up requests per level (at least one per worker)")
+    ] = 5,
     repeats: Annotated[int, typer.Option(min=1, help="Independent runs per configuration")] = 3,
     cost_per_hour: Annotated[
         float | None, typer.Option(min=0, help="Hourly cost; enables the cost model")
     ] = None,
     currency: Annotated[str, typer.Option(help="Currency label")] = "GBP",
-    timeout: Annotated[float, typer.Option(min=0, help="Per-request timeout (s)")] = 120.0,
+    timeout: Annotated[
+        float, typer.Option(min=0.001, help="Seconds; per streamed chunk and per request")
+    ] = 120.0,
     out: Annotated[Path, typer.Option(help="Output directory")] = Path("./results"),
     format: Annotated[OutputFormat, typer.Option(help="Report format")] = OutputFormat.both,
     label: Annotated[str | None, typer.Option(help="Free-text tag stored with results")] = None,
 ) -> None:
     """Run a benchmark sweep against an endpoint."""
+    import asyncio
+    from datetime import UTC, datetime
+
+    from rich.live import Live
+
+    from frugal_llm import report
+    from frugal_llm.bench import BenchAborted, BenchConfig, run_sweep
+    from frugal_llm.metrics import summarise
+    from frugal_llm.prompts import FilePrompts, GeneratedPrompts
+
     config = BenchConfig(
         url=url.rstrip("/"),
         model=model,
@@ -107,15 +126,100 @@ def bench(
         format=format.value,
         label=label,
     )
+    try:
+        prompt_source = FilePrompts.load(prompts) if prompts else GeneratedPrompts(prompt_tokens)
+    except (OSError, ValueError) as exc:
+        raise typer.BadParameter(str(exc), param_hint="--prompts") from None
 
-    # Scaffold stage: show the parsed configuration. Orchestration lands in a later step.
-    table = Table(title="frugal-llm bench: configuration", show_header=False)
-    for field in dataclasses.fields(config):
-        value = getattr(config, field.name)
-        if field.name == "api_key" and value:
-            value = "***"
-        table.add_row(field.name, str(value))
-    console.print(table)
+    for level in config.concurrency:
+        if config.requests < level:
+            console.print(
+                f"[yellow]Note:[/] -n {config.requests} < concurrency {level}: that level "
+                "will never have all its requests in flight at once."
+            )
+
+    view = LiveView(config)
+    started_at = datetime.now(UTC)
+    try:
+        with Live(view, console=console, refresh_per_second=2):
+            runs = asyncio.run(
+                run_sweep(config, prompt_source, on_request=view.on_request, on_run=view.on_run)
+            )
+        if not console.is_terminal:
+            console.line()  # Live leaves its last frame unterminated when not on a TTY
+    except BenchAborted as exc:
+        console.print(f"[bold red]Aborted:[/] {exc}. No results were written.")
+        if "unreachable" in str(exc):
+            console.print("Is the server running, and does --url include the /v1 prefix?")
+        raise typer.Exit(2) from None
+
+    doc = report.build_document(config, runs, started_at)
+    for note in report.notes(summarise(runs, config.cost_per_hour), doc):
+        console.print(f"- {note}", highlight=False)
+    for path in report.write_reports(doc, config.out, config.format):
+        console.print(f"Wrote [bold]{path}[/]")
+
+
+@app.command("report")
+def report_command(
+    results: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, help="A results .json file")
+    ],
+    write: Annotated[bool, typer.Option(help="Also (re)write the .md next to it")] = False,
+) -> None:
+    """Re-aggregate a saved results file into the Markdown table, without re-running."""
+    from frugal_llm import report
+
+    try:
+        markdown = report.render_markdown(report.load_document(results))
+    except (ValueError, KeyError) as exc:
+        raise typer.BadParameter(f"not a frugal-llm results file: {exc}") from None
+    # Markdown is UTF-8 (≈, £, —). Windows pipes default to cp1252, which would crash
+    # `frugal-llm report x.json > x.md`, so write bytes explicitly.
+    sys.stdout.buffer.write(markdown.encode("utf-8"))
+    sys.stdout.flush()
+    if write:
+        results.with_suffix(".md").write_text(markdown, encoding="utf-8", newline="\n")
+
+
+class LiveView:
+    """What the terminal shows while a sweep runs: results so far plus progress."""
+
+    def __init__(self, config: BenchConfig) -> None:
+        self.config = config
+        self.total_runs = len(config.concurrency) * config.repeats
+        self.runs: list[RunResult] = []
+        self.done_in_run = 0
+        self.errors_in_run = 0
+        self.table = None
+
+    def on_request(self, result: RequestResult) -> None:
+        self.done_in_run += 1
+        self.errors_in_run += not result.ok
+
+    def on_run(self, run: RunResult) -> None:
+        from frugal_llm.metrics import summarise
+        from frugal_llm.report import summary_table
+
+        self.runs.append(run)
+        self.done_in_run = self.errors_in_run = 0
+        summaries = summarise(self.runs, self.config.cost_per_hour)
+        self.table = summary_table(summaries, self.config.cost_per_hour, self.config.currency)
+
+    def __rich__(self) -> Group:
+        if len(self.runs) == self.total_runs:
+            status = Text(f"Done: {self.total_runs} runs.", style="green")
+        else:
+            index = len(self.runs)
+            level = self.config.concurrency[index // self.config.repeats]
+            status = Text(
+                f"Run {index + 1}/{self.total_runs}: c={level}, "
+                f"repeat {index % self.config.repeats + 1}/{self.config.repeats}, "
+                f"{self.done_in_run}/{self.config.requests} requests"
+                + (f", {self.errors_in_run} failed" if self.errors_in_run else ""),
+                style="cyan",
+            )
+        return Group(*([self.table] if self.table else []), status)
 
 
 def main() -> None:
