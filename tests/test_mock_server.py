@@ -86,7 +86,7 @@ async def test_records_genuinely_overlapping_requests(mock_endpoint, client):
         assert server.stats.max_in_flight == 16
         assert server.stats.in_flight == 0
 
-        server.reset_stats()
+    with mock_endpoint(MockBehaviour(first_chunk_delay=0.3)) as (server, url):
         for _ in range(3):
             await _stream(client, url, max_tokens=1)
         assert server.stats.max_in_flight == 1

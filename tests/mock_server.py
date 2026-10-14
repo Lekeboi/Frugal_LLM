@@ -8,6 +8,11 @@ It is a bare ASGI app (no framework) served by a real uvicorn server on a real
 socket, because in-process transports buffer the response and would hide
 streaming bugs.
 
+The test suite runs it as a separate process (``run_mock_process``), not a thread:
+sharing a process means sharing the GIL with the client under test, which skewed
+client timings under load. Tests configure it and read its counters over a small
+control API at ``/_mock/*``.
+
 Run standalone for manual poking:
 
     uv run python tests/mock_server.py --port 8765 --first-delay 0.5 --chunk-delay 0.05
@@ -19,11 +24,15 @@ import asyncio
 import contextlib
 import json
 import socket
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass
+from types import SimpleNamespace
 
+import httpx
 import uvicorn
 
 
@@ -46,7 +55,6 @@ class MockStats:
     requests_received: int = 0
     in_flight: int = 0
     max_in_flight: int = 0
-    request_bodies: list[dict] = field(default_factory=list)
 
 
 class MockServer:
@@ -72,6 +80,10 @@ class MockServer:
         if scope["type"] != "http":
             return
 
+        if scope["path"].startswith("/_mock/"):
+            await self._control(scope, receive, send)
+            return
+
         if scope["method"] != "POST" or not scope["path"].endswith("/chat/completions"):
             await _send_json(send, 404, {"error": {"message": "not found"}})
             return
@@ -80,13 +92,33 @@ class MockServer:
         self.stats.requests_received += 1
         self.stats.in_flight += 1
         self.stats.max_in_flight = max(self.stats.max_in_flight, self.stats.in_flight)
+        handler = asyncio.ensure_future(self._handle(json.loads(body), send))
+        disconnect = asyncio.ensure_future(_wait_for_disconnect(receive))
         try:
-            await self._handle(json.loads(body), send)
+            # A client that gives up (e.g. on a timeout) must not leave the mock streaming
+            # into a dead socket: that skews in-flight counts and stalls server shutdown.
+            await asyncio.wait({handler, disconnect}, return_when=asyncio.FIRST_COMPLETED)
         finally:
+            for task in (handler, disconnect):
+                task.cancel()
+            await asyncio.gather(handler, disconnect, return_exceptions=True)
             self.stats.in_flight -= 1
+        if not handler.cancelled() and handler.exception() is not None:
+            raise handler.exception()  # a bug in the mock must never pass silently
+
+    async def _control(self, scope, receive, send) -> None:
+        """Out-of-band control for tests: never counted as a measured request."""
+        path, method = scope["path"], scope["method"]
+        if path == "/_mock/config" and method == "POST":
+            self.behaviour = MockBehaviour(**json.loads(await _read_body(receive)))
+            self.reset_stats()
+            await _send_json(send, 200, {})
+        elif path == "/_mock/stats" and method == "GET":
+            await _send_json(send, 200, asdict(self.stats))
+        else:
+            await _send_json(send, 404, {"error": {"message": "unknown control route"}})
 
     async def _handle(self, request: dict, send) -> None:
-        self.stats.request_bodies.append(request)
         b = self.behaviour
 
         if b.status_code != 200:
@@ -153,6 +185,11 @@ async def _read_body(receive) -> bytes:
             return body
 
 
+async def _wait_for_disconnect(receive) -> None:
+    while (await receive())["type"] != "http.disconnect":
+        pass
+
+
 async def _send_event(send, payload: dict) -> None:
     data = f"data: {json.dumps(payload)}\n\n".encode()
     await send({"type": "http.response.body", "body": data, "more_body": True})
@@ -202,6 +239,53 @@ def run_mock_server(
         sock.close()
 
 
+class MockControl:
+    """Drives a mock running in another process through its ``/_mock/*`` routes."""
+
+    def __init__(self, url: str) -> None:
+        self._http = httpx.Client(base_url=url.removesuffix("/v1"), timeout=10)
+
+    def configure(self, behaviour: MockBehaviour) -> None:
+        """Set behaviour for subsequent requests and zero the counters."""
+        self._http.post("/_mock/config", json=asdict(behaviour)).raise_for_status()
+
+    @property
+    def stats(self) -> SimpleNamespace:
+        """A fresh snapshot of the server's counters."""
+        response = self._http.get("/_mock/stats")
+        response.raise_for_status()
+        return SimpleNamespace(**response.json())
+
+    def close(self) -> None:
+        self._http.close()
+
+
+@contextlib.contextmanager
+def run_mock_process() -> Iterator[tuple[MockControl, str]]:
+    """Run the mock in its own Python process on an ephemeral port.
+
+    Yields ``(control, base_url)`` where ``base_url`` ends in ``/v1``.
+    """
+    proc = subprocess.Popen(
+        [sys.executable, __file__, "--port", "0", "--first-delay", "0", "--chunk-delay", "0"],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        line = proc.stdout.readline()
+        if not line.startswith("READY "):
+            raise RuntimeError(f"mock process failed to start: {line!r}")
+        url = line.split()[1]
+        control = MockControl(url)
+        try:
+            yield control, url
+        finally:
+            control.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -213,6 +297,6 @@ if __name__ == "__main__":
 
     behaviour = MockBehaviour(first_chunk_delay=args.first_delay, chunk_delay=args.chunk_delay)
     with run_mock_server(behaviour, port=args.port) as (_, url):
-        print(f"mock endpoint at {url} — Ctrl+C to stop")
+        print(f"READY {url}", flush=True)
         with contextlib.suppress(KeyboardInterrupt):
             threading.Event().wait()
