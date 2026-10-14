@@ -301,18 +301,28 @@ class LoopLagMonitor:
     def __init__(self) -> None:
         self.samples_ms: list[float] = []
         self._task: asyncio.Task | None = None
+        self._pending_since: float | None = None
 
     async def _sample(self) -> None:
         while True:
-            t0 = time.perf_counter()
+            self._pending_since = time.perf_counter()
             await asyncio.sleep(self.INTERVAL_S)
-            self.samples_ms.append((time.perf_counter() - t0 - self.INTERVAL_S) * 1000)
+            self.samples_ms.append(
+                (time.perf_counter() - self._pending_since - self.INTERVAL_S) * 1000
+            )
 
     async def __aenter__(self) -> LoopLagMonitor:
         self._task = asyncio.create_task(self._sample())
         return self
 
     async def __aexit__(self, *exc_info) -> None:
+        # The sample in progress may be overdue but never got to run: e.g. the loop froze
+        # (machine asleep) and the run finished the moment it woke. Count that overrun,
+        # or a freeze at the very end of a run would go unrecorded.
+        if self._pending_since is not None:
+            overdue = time.perf_counter() - self._pending_since - self.INTERVAL_S
+            if overdue > 0:
+                self.samples_ms.append(overdue * 1000)
         self._task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await self._task

@@ -386,9 +386,27 @@ async def test_loop_lag_monitor_sees_a_blocked_loop():
 
 
 async def test_runs_record_client_lag(mock_endpoint):
-    with mock_endpoint() as (_, url):
+    # Each request takes >= 50 ms so the run spans several 10 ms sampling intervals on
+    # any OS. (On fast Linux runners a 3-request run against a no-delay mock took
+    # 3.4 ms: too short to sample, and correctly reported as no data.)
+    with mock_endpoint(MockBehaviour(first_chunk_delay=0.05)) as (_, url):
         (run,) = await _sweep(url, concurrency=[1], requests=3)
     assert run.client_lag_p99_ms is not None and run.client_lag_max_ms is not None
+
+
+async def test_freeze_at_the_very_end_of_a_run_is_still_caught():
+    """Regression: the monitor was cancelled before its overdue sample could record,
+    so a freeze right before the run ended (e.g. waking from sleep) went unseen."""
+    async with LoopLagMonitor() as lag:
+        await asyncio.sleep(0)  # let the sampler start
+        time.sleep(0.2)  # noqa: ASYNC251 -- loop frozen; run ends right after
+    assert max(lag.samples_ms) > 150
+
+
+async def test_too_short_to_sample_means_no_data():
+    async with LoopLagMonitor() as lag:
+        pass
+    assert lag.samples_ms == []
 
 
 async def test_no_module_lookups_while_measuring(mock_endpoint):
