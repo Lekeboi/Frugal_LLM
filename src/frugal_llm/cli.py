@@ -158,10 +158,12 @@ def bench(
             console.print("Is the server running, and does --url include the /v1 prefix?")
         raise typer.Exit(2) from None
 
+    # Save first: nothing that happens while displaying may cost the user their data.
     doc = report.build_document(config, runs, started_at)
+    paths = report.write_reports(doc, config.out, config.format)
     for note in report.notes(summarise(runs, config.cost_per_hour), doc):
         console.print(f"- {note}", highlight=False)
-    for path in report.write_reports(doc, config.out, config.format):
+    for path in paths:
         console.print(f"Wrote [bold]{path}[/]")
 
 
@@ -256,4 +258,13 @@ class LiveView:
 
 
 def main() -> None:
+    # A terminal or pipe that cannot encode a character (cp1252 on Windows has no ≈)
+    # must degrade the display, never crash the run.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     app()
+
+
+if __name__ == "__main__":
+    main()

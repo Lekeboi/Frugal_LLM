@@ -205,3 +205,24 @@ def test_notes_report_actual_output_and_prompt_lengths():
     text = "\n".join(notes(summarise([run], None), build_document(_config(), [run], STARTED)))
     assert "Median output length was below --max-tokens 128 (c=1: 70)" in text
     assert "Prompt length as counted by the server: median 203 tokens (requested ≈200" in text
+
+
+def test_cli_survives_a_terminal_that_cannot_encode_its_output(mock_endpoint, tmp_path):
+    """Regression: a run's notes contain '≈'; printing them to a cp1252 pipe on Windows
+    raised UnicodeEncodeError *before* the results were saved, losing a 20-minute run."""
+    import os
+    import subprocess
+    import sys
+
+    with mock_endpoint() as (_, url):
+        proc = subprocess.run(
+            [sys.executable, "-m", "frugal_llm.cli", "bench", "--url", url, "--model", "m",
+             "-n", "2", "--warmup", "1", "--repeats", "1", "--max-tokens", "2",
+             "--out", str(tmp_path)],
+            capture_output=True,
+            env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
+            timeout=120,
+        )  # fmt: skip
+    assert proc.returncode == 0, proc.stderr.decode(errors="replace")
+    assert len(list(tmp_path.glob("*.json"))) == 1
+    assert b"Prompt length as counted by the server" in proc.stdout
