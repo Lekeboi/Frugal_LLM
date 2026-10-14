@@ -1,6 +1,6 @@
 """Percentiles and aggregation. Pure functions over plain data.
 
-Rules (SPEC section 4): latency is only ever reported as quantiles, never a mean;
+Rules: latency is only ever reported as quantiles, never a mean;
 samples are never pooled across concurrency levels; TTFT and ITL stay separate.
 Within one level, latency samples from all repeats form one distribution, while
 throughput is computed per run and its spread across repeats is reported.

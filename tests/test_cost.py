@@ -12,7 +12,7 @@ def test_hand_computed():
     ("tokens_per_sec", "expected"), [(47.2, 3.06), (162.8, 0.89), (398.1, 0.36), (512.4, 0.28)]
 )
 def test_matches_spec_example_table(tokens_per_sec, expected):
-    """The SPEC section 6 example: GBP 0.52/hour."""
+    """A worked example: GBP 0.52/hour across a concurrency sweep."""
     assert round(cost_per_million_tokens(0.52, tokens_per_sec), 2) == expected
 
 

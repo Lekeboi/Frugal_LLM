@@ -14,3 +14,6 @@ scratch/
 
 # Benchmark output
 results/
+
+# Private design notes, kept locally
+SPEC.md

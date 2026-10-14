@@ -162,7 +162,7 @@ async def _one(url: str, *, max_tokens: int = 4, client_timeout: float = 30, dea
 
 
 async def test_ttft_is_first_content_not_total(mock_endpoint):
-    """Spec row: 500 ms to first chunk, 50 ms after; TTFT ~ 500, not ~ the 950 total."""
+    """500 ms to first chunk, 50 ms after: TTFT must be ~500, not ~ the 950 total."""
     with mock_endpoint(MockBehaviour(first_chunk_delay=0.5, chunk_delay=0.05)) as (_, url):
         r = await _one(url, max_tokens=10)
     assert_result_invariants(r)
@@ -267,7 +267,7 @@ class RecordingPrompts:
 async def _sweep(url: str, prompts=None, **overrides) -> list[RunResult]:
     config = _config(url, **overrides)
     runs = await run_sweep(config, prompts or RecordingPrompts())
-    # SPEC row "TTFT < E2E always": checked for every request of every test sweep.
+    # Invariant "TTFT < E2E always": checked for every request of every test sweep.
     for run in runs:
         for r in run.requests:
             assert_result_invariants(r)
@@ -275,7 +275,7 @@ async def _sweep(url: str, prompts=None, **overrides) -> list[RunResult]:
 
 
 async def test_concurrency_is_real(mock_endpoint):
-    """SPEC row: at -c 16 the server must observe 16 in flight, not 1."""
+    """At -c 16 the server must observe 16 in flight, not 1."""
     with mock_endpoint(MockBehaviour(first_chunk_delay=0.2)) as (server, url):
         await _sweep(url, concurrency=[16], requests=32)
         assert server.stats.max_in_flight == 16
@@ -290,7 +290,7 @@ async def test_concurrency_is_real_past_default_pool(mock_endpoint):
 
 
 async def test_warmup_is_excluded(mock_endpoint):
-    """SPEC row: 5 warm-up + 20 measured yields exactly 20 samples."""
+    """5 warm-up + 20 measured yields exactly 20 samples."""
     with mock_endpoint() as (server, url):
         runs = await _sweep(url, concurrency=[1], warmup=5, requests=20)
         assert server.stats.requests_received == 1 + 25  # preflight + warm-up + measured
@@ -304,7 +304,7 @@ async def test_warmup_opens_every_workers_connection(mock_endpoint):
 
 
 async def test_no_pooling_across_levels(mock_endpoint):
-    """SPEC row: sweeping 1,4 produces two separate result objects."""
+    """Sweeping 1,4 produces two separate result objects."""
     with mock_endpoint() as (_, url):
         runs = await _sweep(url, concurrency=[1, 4], requests=8)
     assert [run.concurrency for run in runs] == [1, 4]
