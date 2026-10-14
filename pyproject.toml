@@ -29,6 +29,11 @@ dependencies = [
     "typer>=0.27.3",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Lekeboi/Frugal_LLM"
+Repository = "https://github.com/Lekeboi/Frugal_LLM"
+Issues = "https://github.com/Lekeboi/Frugal_LLM/issues"
+
 [project.scripts]
 frugal-llm = "frugal_llm.cli:main"
 
