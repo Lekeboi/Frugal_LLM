@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import socket
+import sys
 import time
 from pathlib import Path
 
@@ -387,3 +388,29 @@ async def test_runs_record_client_lag(mock_endpoint):
     with mock_endpoint() as (_, url):
         (run,) = await _sweep(url, concurrency=[1], requests=3)
     assert run.client_lag_p99_ms is not None and run.client_lag_max_ms is not None
+
+
+async def test_no_module_lookups_while_measuring(mock_endpoint):
+    """Regression: httpcore retried a failed `import sniffio` several times per request,
+    each re-scanning sys.path. On Windows that blocked the event loop ~2 ms per request
+    and inflated TTFT. Steady-state requests must trigger no import machinery at all."""
+
+    class ImportSpy:
+        def __init__(self) -> None:
+            self.names: list[str] = []
+
+        def find_spec(self, name, path=None, target=None):
+            self.names.append(name)
+            return None
+
+    spy = ImportSpy()
+    with mock_endpoint() as (_, url):
+        async with make_client(_config(url)) as client:
+            await stream_one(client, model="m", prompt="warm", max_tokens=2, deadline_s=10)
+            sys.meta_path.insert(0, spy)
+            try:
+                for _ in range(5):
+                    await stream_one(client, model="m", prompt="hi", max_tokens=2, deadline_s=10)
+            finally:
+                sys.meta_path.remove(spy)
+    assert spy.names == []

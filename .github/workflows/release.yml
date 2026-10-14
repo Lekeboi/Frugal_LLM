@@ -1,0 +1,26 @@
+name: Release
+
+# Publishes to PyPI when a version tag (v0.1.0, ...) is pushed. Uses PyPI trusted
+# publishing: configure the project on pypi.org to trust this repository and the
+# "pypi" environment; no API token is stored anywhere.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Tag must match the package version
+        run: |
+          version=$(uv version --short)
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != v$version"; exit 1; }
+      - run: uv run --frozen pytest -q
+      - run: uv build
+      - run: uv publish --trusted-publishing always

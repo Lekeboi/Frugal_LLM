@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import importlib.util
 import itertools
 import json
 import ssl
+import sys
 import time
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
@@ -17,6 +19,14 @@ from typing import Literal, Protocol
 import httpx
 
 from frugal_llm.metrics import percentiles
+
+# httpcore attempts `import sniffio` every time it sets up a lock, several times per
+# request, and falls back to asyncio when it is missing. A *failed* import is not
+# cached, so each attempt re-scans sys.path; on Windows that cost ~2 ms of blocked
+# event loop per request, enough to inflate TTFT at modest concurrency. Recording the
+# absence once makes later attempts fail instantly, with identical behaviour.
+if "sniffio" not in sys.modules and importlib.util.find_spec("sniffio") is None:
+    sys.modules["sniffio"] = None
 
 # HTTP/2 is deliberately off: multiplexing turns N concurrent requests into N streams
 # on one connection, which changes what "concurrency" means. Recorded in the results.
