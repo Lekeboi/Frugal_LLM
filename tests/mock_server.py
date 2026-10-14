@@ -48,6 +48,8 @@ class MockBehaviour:
     """Send a final ``usage`` chunk when the client asks via ``stream_options``."""
     status_code: int = 200
     """Non-200 makes every request fail with this status."""
+    cached_prompt_tokens: int | None = None
+    """When set, usage reports this many prompt tokens as served from cache."""
     fail_every: int = 0
     """When > 0, every k-th request received fails with HTTP 503 (partial failures)."""
 
@@ -176,6 +178,10 @@ class MockServer:
                 "completion_tokens": n_tokens,
                 "total_tokens": prompt_tokens + n_tokens,
             }
+            if b.cached_prompt_tokens is not None:
+                usage_chunk["usage"]["prompt_tokens_details"] = {
+                    "cached_tokens": b.cached_prompt_tokens
+                }
             await _send_event(send, usage_chunk)
 
         await send({"type": "http.response.body", "body": b"data: [DONE]\n\n", "more_body": False})

@@ -159,7 +159,9 @@ def bench(
         raise typer.Exit(2) from None
 
     # Save first: nothing that happens while displaying may cost the user their data.
-    doc = report.build_document(config, runs, started_at)
+    doc = report.build_document(
+        config, runs, started_at, prompt_seed=getattr(prompt_source, "seed", None)
+    )
     paths = report.write_reports(doc, config.out, config.format)
     for note in report.notes(summarise(runs, config.cost_per_hour), doc):
         console.print(f"- {note}", highlight=False)

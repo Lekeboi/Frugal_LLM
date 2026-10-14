@@ -429,3 +429,11 @@ async def test_no_module_lookups_while_measuring(mock_endpoint):
 def test_role_and_empty_chunks_carry_no_content(event):
     """TTFT starts at the first real text, whatever shape servers use for 'nothing'."""
     assert _delta_content(event) == ""
+
+
+async def test_server_reported_cache_use_is_recorded(mock_endpoint):
+    with mock_endpoint(MockBehaviour(cached_prompt_tokens=2)) as (_, url):
+        r = await _one(url)
+    assert r.cached_prompt_tokens == 2 and r.prompt_tokens == 2
+    with mock_endpoint() as (_, url):
+        assert (await _one(url)).cached_prompt_tokens is None

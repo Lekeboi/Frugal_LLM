@@ -3,11 +3,23 @@ import pytest
 from frugal_llm.prompts import FilePrompts, GeneratedPrompts
 
 
-def test_generated_prompts_are_deterministic_and_distinct_from_the_start():
+def test_generated_prompts_are_reproducible_from_their_seed():
+    assert GeneratedPrompts(200, seed=7).get(5) == GeneratedPrompts(200, seed=7).get(5)
+
+
+def test_requests_in_a_run_differ_right_after_the_id():
     p = GeneratedPrompts(200)
-    assert p.get(5) == p.get(5)
-    # Different from the first characters, so no shared prefix for a cache to reuse.
-    assert p.get(1)[:8] != p.get(2)[:8]
+    body = lambda i: p.get(i).split(": ", 1)[1]  # noqa: E731
+    assert body(1)[:12] != body(2)[:12]
+
+
+def test_every_run_gets_new_prompts():
+    """Regression: prompts used to depend only on the request index, so a second run
+    re-sent the first run's prompts and hit the server's prompt cache (TTFT 28 ms
+    against ~1000 ms on llama.cpp)."""
+    a, b = GeneratedPrompts(200), GeneratedPrompts(200)
+    assert a.seed != b.seed
+    assert a.get(0)[:8] != b.get(0)[:8]
 
 
 @pytest.mark.parametrize("tokens", [50, 200, 1000])

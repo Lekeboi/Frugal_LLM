@@ -31,7 +31,11 @@ _REQUEST_FIELDS = (
     "prompt_tokens",
     "token_count_source",
     "error",
+    "cached_prompt_tokens",
 )
+# A little cache use is normal: the chat template's fixed preamble is shared by every
+# prompt. Above this share, cached prompts are flattering TTFT.
+CACHED_PROMPT_WARN = 0.25
 
 
 # --- JSON ---------------------------------------------------------------------------
@@ -41,7 +45,12 @@ def _round(value: Any) -> Any:
     return round(value, 3) if isinstance(value, float) else value
 
 
-def build_document(config: BenchConfig, runs: list[RunResult], started_at: datetime) -> dict:
+def build_document(
+    config: BenchConfig,
+    runs: list[RunResult],
+    started_at: datetime,
+    prompt_seed: int | None = None,
+) -> dict:
     """The full results document. The API key is never written."""
     return {
         "schema_version": SCHEMA_VERSION,
@@ -55,6 +64,7 @@ def build_document(config: BenchConfig, runs: list[RunResult], started_at: datet
             "max_tokens": config.max_tokens,
             "prompt_tokens": config.prompt_tokens,
             "prompts": str(config.prompts_path) if config.prompts_path else None,
+            "prompt_seed": prompt_seed,
             "warmup": config.warmup,
             "repeats": config.repeats,
             "timeout": config.timeout,
@@ -218,6 +228,13 @@ def notes(summaries: list[LevelSummary], doc: dict) -> list[str]:
             f"(requested ≈{cfg['prompt_tokens']}, including the chat template)."
         )
     for s in summaries:
+        if s.cached_prompt_share is not None and s.cached_prompt_share > CACHED_PROMPT_WARN:
+            out.append(
+                f"c={s.concurrency}: WARNING the server reported serving "
+                f"{s.cached_prompt_share:.0%} of prompt tokens from its prompt cache, so TTFT "
+                "is lower than new prompts would see"
+                + (" (--prompts repeats its lines)." if cfg.get("prompts") else ".")
+            )
         if s.runs == 0:
             out.append(f"c={s.concurrency}: no valid runs; every run was excluded.")
         if s.errors:

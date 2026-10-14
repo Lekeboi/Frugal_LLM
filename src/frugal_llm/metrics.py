@@ -80,6 +80,8 @@ class LevelSummary:
     client_lag_p99_ms: float | None
     output_tokens_median: float | None = None
     prompt_tokens_median: float | None = None
+    cached_prompt_share: float | None = None
+    """Fraction of prompt tokens the server reported serving from cache (None if unreported)."""
 
     @property
     def error_rate(self) -> float:
@@ -135,7 +137,15 @@ def summarise_level(runs: Sequence[RunResult], cost_per_hour: float | None) -> L
         client_lag_p99_ms=max(lags, default=None),
         output_tokens_median=_median([r.output_tokens for r in ok]),
         prompt_tokens_median=_median([r.prompt_tokens for r in ok if r.prompt_tokens is not None]),
+        cached_prompt_share=_cached_share(ok),
     )
+
+
+def _cached_share(requests: Sequence) -> float | None:
+    reported = [r for r in requests if r.cached_prompt_tokens is not None and r.prompt_tokens]
+    if not reported:
+        return None
+    return sum(r.cached_prompt_tokens for r in reported) / sum(r.prompt_tokens for r in reported)
 
 
 def _median(values: Sequence[float]) -> float | None:

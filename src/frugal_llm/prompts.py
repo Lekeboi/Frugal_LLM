@@ -29,20 +29,24 @@ _OVERHEAD_TOKENS = 20
 
 
 class GeneratedPrompts:
-    """Deterministic synthetic prompts of approximately ``prompt_tokens`` tokens.
+    """Synthetic prompts of approximately ``prompt_tokens`` tokens.
 
-    Each index gets different text from its very first words, so no two requests
-    share a prefix and server-side prefix caching cannot flatter TTFT.
+    Every prompt starts with a per-run random seed and its index, so no two requests
+    share a prefix, *within a run or across runs*. Servers keep prompt caches that
+    outlive a run (llama.cpp, and Ollama until the model unloads): reusing last run's
+    prompts measured TTFT of ~30 ms where new prompts took ~1000 ms. Pass ``seed`` to
+    reproduce a run's exact prompts; it is recorded in the results.
     """
 
-    def __init__(self, prompt_tokens: int) -> None:
+    def __init__(self, prompt_tokens: int, seed: int | None = None) -> None:
         self.prompt_tokens = prompt_tokens
+        self.seed = seed if seed is not None else random.SystemRandom().getrandbits(32)
         self._n_words = max(prompt_tokens - _OVERHEAD_TOKENS, 1)
 
     def get(self, index: int) -> str:
-        rng = random.Random(index)
+        rng = random.Random(f"{self.seed}:{index}")
         words = " ".join(rng.choice(_WORDS) for _ in range(self._n_words))
-        return f"{index}: {words}\n\n{_INSTRUCTION}"
+        return f"{self.seed:08x}-{index}: {words}\n\n{_INSTRUCTION}"
 
 
 class FilePrompts:

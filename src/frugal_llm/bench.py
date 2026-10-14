@@ -152,6 +152,8 @@ class RequestResult:
     prompt_tokens: int | None = None
     token_count_source: TokenCountSource | None = None
     error: str | None = None
+    cached_prompt_tokens: int | None = None
+    """Prompt tokens the server says it served from its prompt cache, when reported."""
 
     @property
     def ok(self) -> bool:
@@ -253,6 +255,9 @@ async def stream_one(
         output_tokens=completion_tokens if completion_tokens is not None else len(content_times),
         prompt_tokens=(usage or {}).get("prompt_tokens"),
         token_count_source="usage" if completion_tokens is not None else "chunks",
+        cached_prompt_tokens=((usage or {}).get("prompt_tokens_details") or {}).get(
+            "cached_tokens"
+        ),
     )
 
 

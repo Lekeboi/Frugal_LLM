@@ -238,3 +238,19 @@ def test_prompt_length_note_has_no_degenerate_range():
     assert "median 203-204 tokens" in text
     one = "\n".join(notes(summarise(runs[:1], None), doc))
     assert "median 203 tokens" in one
+
+
+def test_heavy_prompt_cache_use_is_flagged():
+    def cached(n):
+        return RequestResult(0.0, 1.0, 30.0, 20.0, 300.0, 10, 224, "usage", None, n)
+
+    hot = RunResult(1, 0, 1.0, [cached(200), cached(220)])
+    cold = RunResult(2, 0, 1.0, [cached(32), cached(32)])  # just the shared chat template
+    doc = build_document(_config(concurrency=[1, 2]), [hot, cold], STARTED, prompt_seed=42)
+    text = "\n".join(notes(summarise([hot, cold], None), doc))
+    assert (
+        "c=1: WARNING the server reported serving 94% of prompt tokens from its prompt cache"
+        in text
+    )
+    assert "c=2: WARNING" not in text
+    assert doc["config"]["prompt_seed"] == 42
