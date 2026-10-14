@@ -206,12 +206,16 @@ def notes(summaries: list[LevelSummary], doc: dict) -> list[str]:
             f"Median output length was below --max-tokens {max_tokens} ({detail}): the model "
             "often stopped early. Throughput and cost reflect these shorter generations."
         )
-    prompt_medians = [s.prompt_tokens_median for s in summaries if s.prompt_tokens_median]
+    prompt_medians = sorted(
+        {f"{s.prompt_tokens_median:.0f}" for s in summaries if s.prompt_tokens_median},
+        key=float,
+    )
     if prompt_medians and not cfg.get("prompts"):
+        low, high = prompt_medians[0], prompt_medians[-1]
+        span = low if low == high else f"{low}-{high}"
         out.append(
-            f"Prompt length as counted by the server: median {min(prompt_medians):.0f}"
-            + (f"-{max(prompt_medians):.0f}" if min(prompt_medians) != max(prompt_medians) else "")
-            + f" tokens (requested ≈{cfg['prompt_tokens']}, including the chat template)."
+            f"Prompt length as counted by the server: median {span} tokens "
+            f"(requested ≈{cfg['prompt_tokens']}, including the chat template)."
         )
     for s in summaries:
         if s.runs == 0:

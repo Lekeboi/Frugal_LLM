@@ -17,6 +17,7 @@ from frugal_llm.bench import (
     BenchConfig,
     LoopLagMonitor,
     RunResult,
+    _delta_content,
     classify_error,
     make_client,
     request_timeout,
@@ -414,3 +415,17 @@ async def test_no_module_lookups_while_measuring(mock_endpoint):
             finally:
                 sys.meta_path.remove(spy)
     assert spy.names == []
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"choices": [{"delta": {"role": "assistant", "content": None}}]},  # llama.cpp
+        {"choices": [{"delta": {"role": "assistant", "content": ""}}]},  # vLLM, the mock
+        {"choices": [{"delta": {}}]},
+        {"choices": []},  # usage-only chunk
+    ],
+)
+def test_role_and_empty_chunks_carry_no_content(event):
+    """TTFT starts at the first real text, whatever shape servers use for 'nothing'."""
+    assert _delta_content(event) == ""

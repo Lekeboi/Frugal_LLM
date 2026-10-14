@@ -226,3 +226,15 @@ def test_cli_survives_a_terminal_that_cannot_encode_its_output(mock_endpoint, tm
     assert proc.returncode == 0, proc.stderr.decode(errors="replace")
     assert len(list(tmp_path.glob("*.json"))) == 1
     assert b"Prompt length as counted by the server" in proc.stdout
+
+
+def test_prompt_length_note_has_no_degenerate_range():
+    runs = [
+        RunResult(1, 0, 1.0, [req(100), req(100)]),
+        RunResult(4, 0, 1.0, [RequestResult(0.0, 1.0, 100.0, 20.0, 300.0, 10, 204, "usage")]),
+    ]
+    doc = build_document(_config(concurrency=[1, 4]), runs, STARTED)
+    text = "\n".join(notes(summarise(runs, None), doc))
+    assert "median 203-204 tokens" in text
+    one = "\n".join(notes(summarise(runs[:1], None), doc))
+    assert "median 203 tokens" in one
