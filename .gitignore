@@ -13,7 +13,7 @@ wheels/
 scratch/
 
 # Benchmark output
-results/
+/results/
 
 # Private design notes, kept locally
 SPEC.md

@@ -12,6 +12,9 @@ llama.cpp, Ollama or a commercial API — and reports:
   full precision, on shipped task sets, with honest statistics;
 - **`cost`**: the traffic above which self-hosting beats a commercial API's per-token price.
 
+**First study:** Qwen2.5-7B-Instruct in four formats on affordable rented GPUs, with quality
+measured against BF16. See [docs/results.md](docs/results.md) (draft; one tier still running).
+
 It speaks only the OpenAI-compatible `/v1` API, so there is nothing engine-specific to
 install or configure.
 
