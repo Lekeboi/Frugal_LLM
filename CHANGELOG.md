@@ -9,6 +9,8 @@
 - `scripts/compare_tiers.py`: the study's GPU tiers side by side (cost per 1M output tokens,
   throughput, quality cross-check).
 - `scripts/pod_selfstop.py` sends its own User-Agent: RunPod's edge rejected urllib's default.
+- The environment probe accepts a bare model list from `/models` (Together returns one).
+- Quality items record `served_by`, the upstream a router such as OpenRouter names.
 
 ## 0.2.1
 
