@@ -5,6 +5,7 @@ import socket
 
 import httpx
 import pytest
+from conftest import plain
 from mock_server import MockBehaviour
 from typer.testing import CliRunner
 
@@ -45,7 +46,9 @@ async def test_unknown_model_and_dead_server_never_fail_the_probe(mock_endpoint)
         s.bind(("127.0.0.1", 0))
         async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{s.getsockname()[1]}/v1") as c:
             info = await server_info(c, "m")
-    assert info["models_error"] == "ConnectError" and info["system_fingerprint"] is None
+    # Refused at once on Windows and Linux; on macOS the attempt times out instead.
+    assert info["models_error"] in ("ConnectError", "ConnectTimeout")
+    assert info["system_fingerprint"] is None
 
 
 def test_summary_line():
@@ -86,7 +89,7 @@ def test_finished_runs_survive_a_server_that_dies_mid_sweep(mock_endpoint, tmp_p
             "--warmup", "1", "--repeats", "1", "--max-tokens", "2", "--out", str(tmp_path),
         ])  # fmt: skip
     assert result.exit_code == 2
-    assert "Finished runs are saved" in result.output
+    assert "Finished runs are saved" in plain(result.output)
     (partial,) = tmp_path.glob("*.partial.json")
     doc = json.loads(partial.read_text(encoding="utf-8"))
     assert doc["complete"] is False and [r["concurrency"] for r in doc["runs"]] == [1]

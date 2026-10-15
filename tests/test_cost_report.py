@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from conftest import plain
 from typer.testing import CliRunner
 
 from frugal_llm.bench import BenchConfig, RequestResult, RunResult
@@ -114,7 +115,7 @@ def test_cli_cost_rejects_undated_or_unsourced_prices(tmp_path, args, message):
     out = runner.invoke(
         app, ["cost", str(results), "--hourly-rate", "1", "--rate-source", "s", *args]
     )
-    assert out.exit_code != 0 and message in out.output
+    assert out.exit_code != 0 and message in plain(out.output)
 
 
 def test_cli_cost_refuses_a_quality_result(tmp_path):
@@ -123,4 +124,4 @@ def test_cli_cost_refuses_a_quality_result(tmp_path):
                        encoding="utf-8")  # fmt: skip
     out = runner.invoke(app, ["cost", str(results), "--hourly-rate", "1", "--rate-source", "s",
                               "--rate-date", "2026-10-15"])  # fmt: skip
-    assert out.exit_code != 0 and "not a bench result" in out.output
+    assert out.exit_code != 0 and "not a bench result" in plain(out.output)

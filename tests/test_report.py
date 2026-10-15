@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from conftest import plain
 from mock_server import MockBehaviour
 from typer.testing import CliRunner
 
@@ -175,7 +176,7 @@ def test_cli_unreachable_endpoint_fails_loudly_and_writes_nothing(tmp_path):
         url = f"http://127.0.0.1:{s.getsockname()[1]}/v1"
         result = runner.invoke(app, ["bench", "--url", url, "--model", "m", "--out", str(tmp_path)])
     assert result.exit_code == 2
-    assert "unreachable" in result.output
+    assert "unreachable" in plain(result.output)
     assert not list(tmp_path.iterdir())
 
 

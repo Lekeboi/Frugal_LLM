@@ -49,6 +49,16 @@ async def client():
         yield c
 
 
+def plain(output: str) -> str:
+    """CLI output as plain words: no colour codes, box borders or line wrapping, which
+    rich applies differently per OS and terminal width."""
+    import re
+
+    text = re.sub(r"\x1b\[[0-9;]*m", "", output)
+    text = re.sub(r"[\u2500-\u257f]", " ", text)  # box-drawing characters
+    return " ".join(text.split())
+
+
 def assert_result_invariants(result) -> None:
     """Properties every successful measurement must satisfy, whatever the server did."""
     if not result.ok:
