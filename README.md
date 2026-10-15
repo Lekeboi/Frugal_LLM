@@ -135,16 +135,54 @@ Each concurrency level is its own distribution; samples are never pooled across
 levels. Within a level, latency samples from all repeats are pooled, while
 throughput and cost show the median run with the min–max range across repeats.
 
+## Measuring quality loss (in development)
+
+> Not in the PyPI release yet. Install from this repository to try it:
+> `uvx --from git+https://github.com/Lekeboi/Frugal_LLM frugal-llm quality --help`
+
+Speed is only half the question. Before serving a cheaper (quantised) model, you want to
+know what it costs in output quality. frugal-llm answers that relative to the full-precision
+(FP16) model, on the same hardware and engine:
+
+```bash
+# FP16 twice (the second run measures run-to-run noise), then the cheaper format
+frugal-llm quality --url http://localhost:8080/v1 --model my-model --task mmlu --label fp16-a
+frugal-llm quality --url http://localhost:8080/v1 --model my-model --task mmlu --label fp16-b
+frugal-llm quality --url http://localhost:8080/v1 --model my-model --task mmlu --label q4_k_m
+frugal-llm compare results/*-fp16-a.json results/*-q4_k_m.json --noise-floor results/*-fp16-b.json
+```
+
+- **Task sets ship with the tool**, so everyone runs identical items: all 1,319 GSM8K test
+  questions (arithmetic reasoning) and a fixed 1,000-question MMLU subset (knowledge, all 57
+  subjects). Both are MIT-licensed; see `src/frugal_llm/tasks/`.
+- **Greedy decoding, fixed prompts, fixed answer-extraction rules**, all decided before any
+  result was produced. The full method, including every change made since and why, is in
+  [docs/quality-method.md](docs/quality-method.md).
+- **`compare` reports both what changed and whether it matters:** accuracy with confidence
+  intervals, the paired difference against FP16 with an exact significance test, how often
+  the final answers agree, and the FP16-versus-FP16 noise floor. It also states the smallest
+  difference the comparison could have detected, so "no difference detected" is never
+  dressed up as "no quality loss".
+- **Long runs survive interruption:** every answer is saved as it arrives, and `--resume`
+  continues where a run stopped. Rate-limited requests (HTTP 429) are retried, honouring
+  `Retry-After`, because a quality score needs every question answered.
+
 ## What this measures and what it doesn't
 
-**It measures** speed and cost of generation as seen by a client: how long until the
+**`bench` measures** speed and cost of generation as seen by a client: how long until the
 first token, how fast tokens stream, how many tokens per second the endpoint sustains
 at a given concurrency, and what that costs at the hourly rate you supply.
 
-**It does not measure:**
+**`quality` measures** how much a cheaper format changes a model's answers on two checkable
+task sets, relative to FP16 (see above).
 
-- **Output quality or accuracy.** Not at all, in v0.1. A fast, cheap model that
-  answers badly will look good here. Evaluate quality separately before deciding.
+**Neither measures:**
+
+- **General output quality.** `bench` measures no quality at all: a fast, cheap model that
+  answers badly will look good there. `quality` covers arithmetic reasoning and recalled
+  knowledge only, not instruction following, long context, safety or writing. Both task sets
+  are public and may be in a model's training data, so absolute scores are not evidence of
+  general ability; only the comparison against FP16 is meaningful.
 - **Your real traffic.** Load is closed-loop (N requests always in flight), with fixed
   output length and synthetic or supplied prompts. Bursty traffic, long contexts or
   variable output lengths will behave differently.
