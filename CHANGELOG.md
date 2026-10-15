@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1
+
+Preparation for the first study (docs/study-protocol.md). Result format still provisional.
+
+- `bench -n` accepts one request count per concurrency level, e.g.
+  `-c 1,4,16,64 -n 50,100,200,400`.
+- `scripts/run_cell.sh`: the exact, pinned sequence each study cell runs on a GPU pod.
+- Quality method: "FP16" defined as the unquantised weights as published (FP16 or BF16);
+  study quality runs fixed at concurrency 16. Both logged as changes before any study result.
+
 ## 0.2.0
 
 Quality and cost measurement. The result format is **provisional** until the first full study

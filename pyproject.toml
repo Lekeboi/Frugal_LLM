@@ -1,6 +1,6 @@
 [project]
 name = "frugal-llm"
-version = "0.2.0"
+version = "0.2.1"
 description = "Benchmark latency, throughput, cost and quantisation quality loss of any OpenAI-compatible LLM endpoint."
 readme = "README.md"
 license = "Apache-2.0"
