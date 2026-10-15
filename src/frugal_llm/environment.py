@@ -82,7 +82,7 @@ async def server_info(client: httpx.AsyncClient, model: str) -> dict:
 
 
 def summary_line(environment: dict) -> str | None:
-    """One readable line for reports: server, build, precision as reported, user meta."""
+    """One readable line for reports: server, fingerprint, precision as reported, user meta."""
     server = environment.get("server") or {}
     entry = server.get("model_entry") or {}
     meta = entry.get("meta") if isinstance(entry.get("meta"), dict) else {}
@@ -90,7 +90,7 @@ def summary_line(environment: dict) -> str | None:
     if server.get("server_header"):
         parts.append(f"server {server['server_header']}")
     if server.get("system_fingerprint"):
-        parts.append(f"build {server['system_fingerprint']}")
+        parts.append(f"fingerprint {server['system_fingerprint']}")
     if meta.get("ftype"):
         parts.append(f"weights {meta['ftype']} (as reported)")
     parts += [f"{k}={v}" for k, v in (environment.get("meta") or {}).items()]

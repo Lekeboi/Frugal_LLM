@@ -58,7 +58,7 @@ def test_summary_line():
         "meta": {"gpu": "none"},
     }  # fmt: skip
     assert summary_line(env) == (
-        "server llama.cpp, build b11604-45451c366, weights F16 (as reported), gpu=none"
+        "server llama.cpp, fingerprint b11604-45451c366, weights F16 (as reported), gpu=none"
     )
     assert summary_line({}) is None
 
@@ -76,7 +76,7 @@ def test_bench_records_environment_and_meta(mock_endpoint, tmp_path):
     assert env["meta"] == {"gpu": "none", "provider": "laptop"}
     assert env["server"]["system_fingerprint"] == "mock-build-1"
     md = path.with_suffix(".md").read_text(encoding="utf-8")
-    assert "Environment: server frugal-mock, build mock-build-1, weights F16" in md
+    assert "Environment: server frugal-mock, fingerprint mock-build-1, weights F16" in md
     assert not list(tmp_path.glob("*.partial.json"))  # cleaned up after a complete sweep
 
 
@@ -114,6 +114,6 @@ def test_compare_warns_when_the_baseline_is_not_full_precision(mock_endpoint, tm
     md = result.stdout_bytes.decode()
     assert "WARNING: the baseline's server reported its weights as Q4_K_M" in md
     assert (
-        "- cand: server frugal-mock, build mock-build-1, weights Q2_K (as reported), quant=Q2_K"
-        in md
+        "- cand: server frugal-mock, fingerprint mock-build-1, "
+        "weights Q2_K (as reported), quant=Q2_K" in md
     )

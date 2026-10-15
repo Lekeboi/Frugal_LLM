@@ -122,7 +122,10 @@ def daily_cost_self_hosted(
     requests_per_day: float, hourly_rate: float, capacity_rps: float
 ) -> float:
     """Instances needed to carry the traffic (at least one, kept running), for a day."""
-    instances = max(1, math.ceil(requests_per_day / (capacity_rps * SECONDS_PER_DAY)))
+    # Rounded first: traffic of exactly n instances' capacity must not ceil to n + 1 on
+    # floating-point noise (that showed as a spurious step at the end of break-even charts).
+    load = round(requests_per_day / (capacity_rps * SECONDS_PER_DAY), 9)
+    instances = max(1, math.ceil(load))
     return instances * hourly_rate * 24
 
 

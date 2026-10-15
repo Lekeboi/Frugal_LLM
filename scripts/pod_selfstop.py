@@ -20,7 +20,12 @@ def _post(url: str, key: str, body: dict | None = None) -> tuple[int, str]:
         url,
         data=data,
         method="POST",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            # RunPod's edge rejects urllib's default User-Agent (Cloudflare error 1010).
+            "User-Agent": "frugal-llm-selfstop/1",
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:

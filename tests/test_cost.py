@@ -87,5 +87,13 @@ def test_daily_costs_step_with_instances():
     assert daily_cost_api(86_400, 0.00025) == pytest.approx(21.6)  # equal at break-even
 
 
+def test_exactly_n_instances_of_traffic_needs_n_instances():
+    # The break-even curve ends at 3 instances' capacity, computed in floating point; for
+    # capacities such as 1.01 req/s that lands a hair above 3 and once added a 4th instance.
+    for capacity in (1.01, 1.05, 20.09, 24.37):
+        traffic = 3 * capacity * 86_400 * 60 / 60
+        assert daily_cost_self_hosted(traffic, 1.0, capacity) == pytest.approx(72.0)
+
+
 def test_no_break_even_against_a_free_api():
     assert break_even(0.90, 4.0, 0.0) is None

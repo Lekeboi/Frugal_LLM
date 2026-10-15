@@ -74,7 +74,7 @@ def environment_section(bench: dict[str, dict], folder: Path) -> list[str]:
         if meta.get(key):
             lines.append(f"- {label}: {meta[key]}")
     if server.get("system_fingerprint"):
-        lines.append(f"- Server build: `{server['system_fingerprint']}`")
+        lines.append(f"- Server fingerprint (changes per launch): `{server['system_fingerprint']}`")
     lines.append(f"- frugal-llm: {doc['environment']['frugal_llm_version']}")
     host = folder / "host-info.txt"
     if host.exists():
