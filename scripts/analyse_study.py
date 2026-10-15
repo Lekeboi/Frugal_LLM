@@ -141,7 +141,9 @@ def quality_section(folder: Path, tier: str) -> tuple[list[str], dict]:
         ]
         if floor_cmp:
             data[task + "_noise_floor_agreement"] = floor_cmp.answer_agreement
-    return lines, data
+    if not data:  # e.g. the reference run, which measures latency only
+        return ["## Quality against BF16", "", "No quality runs in this tier.", ""], data
+    return [*lines, "![Quality](quality.png)", ""], data
 
 
 def cost_section(bench: dict[str, dict], prices: list[ApiPrice]) -> tuple[list[str], dict]:
@@ -320,8 +322,6 @@ def main() -> int:
         "![TTFT p95](ttft_p95.png)",
         "",
         *quality_md,
-        "![Quality](quality.png)",
-        "",
         *cost_md,
         "![Break-even](breakeven.png)",
         "",
