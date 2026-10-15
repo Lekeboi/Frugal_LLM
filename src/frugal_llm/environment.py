@@ -54,7 +54,10 @@ async def server_info(client: httpx.AsyncClient, model: str) -> dict:
         response = await client.get("/models")
         info["server_header"] = response.headers.get("server")
         if response.status_code == 200:
-            data = response.json().get("data") or []
+            body = response.json()
+            # OpenAI wraps the list as {"data": [...]}; some providers (Together) return it bare.
+            data = body.get("data") if isinstance(body, dict) else body
+            data = [m for m in data or [] if isinstance(m, dict)] if isinstance(data, list) else []
             info["models_listed"] = [m.get("id") for m in data]
             info["model_entry"] = next((m for m in data if m.get("id") == model), None)
         else:

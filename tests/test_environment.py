@@ -51,6 +51,30 @@ async def test_unknown_model_and_dead_server_never_fail_the_probe(mock_endpoint)
     assert info["system_fingerprint"] is None
 
 
+@pytest.mark.parametrize(
+    "models_body",
+    [
+        [{"id": "m", "type": "chat"}, {"id": "other"}],  # bare list, as Together returns
+        {"data": [{"id": "m", "type": "chat"}, {"id": "other"}]},  # OpenAI's wrapper
+        {"object": "list"},  # no list at all: recorded as empty, never a crash
+    ],
+)
+async def test_model_listing_in_any_shape(models_body):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=models_body)
+        return httpx.Response(200, json={"system_fingerprint": "fp", "choices": []})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(base_url="http://x/v1", transport=transport) as client:
+        info = await server_info(client, "m")
+    if "object" in models_body:
+        assert info["models_listed"] == [] and info["model_entry"] is None
+    else:
+        assert info["models_listed"] == ["m", "other"]
+        assert info["model_entry"] == {"id": "m", "type": "chat"}
+
+
 def test_summary_line():
     env = {
         "server": {"server_header": "llama.cpp", "system_fingerprint": "b11604-45451c366",
