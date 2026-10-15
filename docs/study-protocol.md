@@ -43,7 +43,20 @@ verified).
 | 2 | NVIDIA L4, 24 GB | The entry inference card of the major clouds |
 | Reference | NVIDIA A100 80 GB | The class published benchmarks use; latency only, to anchor the results |
 
-All tiers rented from RunPod (Secure Cloud), hourly rates recorded as paid with their date.
+All tiers rented from RunPod **Secure Cloud** (RunPod's own data centres, for consistent
+hardware), hourly rates recorded as paid with their date. Stock varies by the hour, so if a
+planned GPU is unavailable when its tier is due, the next Secure Cloud option in this order is
+used, and the substitution is reported with the results:
+
+| Tier | Planned | Substitutes, in order |
+|---|---|---|
+| 1 | RTX 3090 | RTX 4090, then RTX A5000 |
+| 2 | L4 | none (the tier waits for stock) |
+| Reference | A100 PCIe 80 GB | A100 SXM 80 GB |
+
+All formats of a tier run on **one pod**, so comparisons within a tier share identical
+hardware, and each pod's host (GPU details, CPU, memory) is recorded with its results. The
+pinned vLLM image is built for CUDA 13.0, so pods are created only on hosts supporting it.
 Engine: **vLLM 0.30.0** (`vllm/vllm-openai:v0.30.0`), released 2026-09-22. Client: frugal-llm,
 a pinned release, running on the same machine as the server so no network latency is measured.
 
