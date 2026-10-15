@@ -8,6 +8,7 @@
 #
 # FORMAT: bf16 | awq | gptq4 | gptq8
 # SHAKEDOWN=1  tiny runs, to check every step works before paying for the real ones
+# SKIP_QUALITY=1  latency only (the reference tier)
 # DRY_RUN=1    print the commands without running anything
 set -euo pipefail
 
@@ -97,8 +98,10 @@ run "$FL" bench --url "$URL" --model "$NAME" "${BENCH_ARGS[@]}" --max-tokens 128
   --out "$RESULTS" "${META[@]}"
 
 # --- quality (BF16 twice: the second run is the noise floor) ------------------------
+# SKIP_QUALITY=1 for the reference tier, which measures latency only (study protocol).
 if [[ "$FORMAT" == bf16 ]]; then RUNS=(a b); else RUNS=(""); fi
-for task in gsm8k mmlu; do
+[[ "${SKIP_QUALITY:-0}" == 1 ]] && { log "quality skipped (SKIP_QUALITY=1)"; TASKS=(); } || TASKS=(gsm8k mmlu)
+for task in "${TASKS[@]}"; do
   for r in "${RUNS[@]}"; do
     label="${LABEL_PREFIX}${TIER}-${FORMAT}${r:+-$r}"
     log "quality $task $label"

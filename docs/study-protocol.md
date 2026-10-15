@@ -121,4 +121,7 @@ table or chart can be regenerated or checked with `report`, `compare` and `cost`
 
 ## Changes after the first study result
 
-None yet.
+1. **Run order** (2026-10-15, after tier 1). Tier 1 ran on the RTX 4090 substitute (the RTX
+   3090 could not be placed on four attempts). The L4 for tier 2 then had no Secure Cloud stock,
+   so the reference tier (latency only) was run while a script retried the L4. This changes
+   the order of runs only, not any measurement; each tier still runs entirely on one pod.
