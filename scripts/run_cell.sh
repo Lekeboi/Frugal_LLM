@@ -44,13 +44,20 @@ fi
 run() { echo "+ $*"; [[ "${DRY_RUN:-0}" == 1 ]] || "$@"; }
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
-# frugal-llm in its own virtualenv, so it can never disturb vLLM's dependencies.
+# frugal-llm in its own virtualenv (made with uv, which needs no python3-venv package), so
+# it can never disturb vLLM's dependencies.
 FL=/opt/frugal-llm/bin/frugal-llm
 if [[ "${DRY_RUN:-0}" != 1 && ! -x "$FL" ]]; then
-  python3 -m venv /opt/frugal-llm
-  /opt/frugal-llm/bin/pip install --quiet "frugal-llm==${FL_VERSION}"
+  python3 -m pip install --quiet uv
+  python3 -m uv venv --quiet /opt/frugal-llm --python python3
+  python3 -m uv pip install --quiet --python /opt/frugal-llm/bin/python "frugal-llm==${FL_VERSION}"
 fi
 run mkdir -p "$RESULTS"
+
+# The host, once per pod: hosts differ in CPU, memory and GPU clocks, so record them.
+if [[ "${DRY_RUN:-0}" != 1 && ! -f "$RESULTS/host-info.txt" ]]; then
+  { date -u; echo; nvidia-smi -q; echo; lscpu; echo; free -g; echo; df -h /workspace; }     > "$RESULTS/host-info.txt" 2>&1 || true
+fi
 
 # --- serve -------------------------------------------------------------------------
 log "starting vLLM: $REPO@$REV"
@@ -61,7 +68,8 @@ else
   vllm serve "$REPO" --revision "$REV" --served-model-name "$NAME" \
     --max-model-len 4096 --gpu-memory-utilization 0.90 --port "$PORT" > "$SERVER_LOG" 2>&1 &
   SERVER_PID=$!
-  trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+  # On exit, stop vLLM and wait until it has gone, so the next cell finds the GPU memory free.
+  trap 'kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true' EXIT
   for _ in $(seq 1 360); do  # up to 30 min: first start downloads the weights
     curl -sf "http://127.0.0.1:${PORT}/health" > /dev/null && break
     kill -0 "$SERVER_PID" 2>/dev/null || { echo "vLLM exited; see $SERVER_LOG" >&2; tail -30 "$SERVER_LOG" >&2; exit 1; }
