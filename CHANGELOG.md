@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Reports label the server's `system_fingerprint` "fingerprint", not "build": vLLM issues a
+  new one at every launch.
+- Self-hosted daily cost no longer adds a spurious instance when traffic is an exact multiple
+  of one instance's capacity (floating-point rounding; it showed on break-even charts).
+- `scripts/compare_tiers.py`: the study's GPU tiers side by side (cost per 1M output tokens,
+  throughput, quality cross-check).
+- `scripts/pod_selfstop.py` sends its own User-Agent: RunPod's edge rejected urllib's default.
+
 ## 0.2.1
 
 Preparation for the first study (docs/study-protocol.md). Result format still provisional.

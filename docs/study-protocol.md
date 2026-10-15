@@ -125,3 +125,14 @@ table or chart can be regenerated or checked with `report`, `compare` and `cost`
    3090 could not be placed on four attempts). The L4 for tier 2 then had no Secure Cloud stock,
    so the reference tier (latency only) was run while a script retried the L4. This changes
    the order of runs only, not any measurement; each tier still runs entirely on one pod.
+2. **RTX 3090 tier added** (2026-10-15, after tier 2). With the other tiers complete, the
+   originally planned RTX 3090 was retried once (Secure Cloud, no substitute, two-hour limit)
+   and placed. It runs the same cells, pins and commit as tier 2, labelled `t1-rtx3090`. The
+   RTX 4090 tier is kept, not replaced: both are reported, and no earlier result changes.
+3. **Report wording and one chart fix** (2026-10-15). The server's `system_fingerprint` is
+   now labelled "fingerprint", not "build": vLLM issues a new one at every launch, so it
+   identifies a server process, not a software build. The break-even chart's self-hosted line
+   could add an instance one sample early wherever traffic was an exact multiple of one
+   instance's capacity (floating-point rounding; most visible as a spike at the final point);
+   the instance count is now rounded before it is taken. Neither change alters any measurement
+   or table value: regenerated summaries differ from the earlier ones only in the label.
