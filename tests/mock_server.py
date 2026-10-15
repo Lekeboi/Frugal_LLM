@@ -54,6 +54,10 @@ class MockBehaviour:
     reply: str | None = None
     """Non-streaming replies return this text (default: 'tok0 tok1 ...' up to max_tokens)."""
     rate_limit_first: int = 0
+    fail_after: int = 0
+    """When > 0, every request after the first N fails with HTTP 503 (a server dying)."""
+    reported_ftype: str = "F16"
+    """Weight precision the mock reports in its /models entry."""
     """The first N requests get HTTP 429 with 'Retry-After: 0', then normal service."""
     """When > 0, every k-th request received fails with HTTP 503 (partial failures)."""
 
@@ -91,6 +95,13 @@ class MockServer:
 
         if scope["path"].startswith("/_mock/"):
             await self._control(scope, receive, send)
+            return
+
+        if scope["method"] == "GET" and scope["path"].endswith("/models"):
+            await _send_json(send, 200, {"object": "list", "data": [
+                {"id": "mock", "object": "model", "owned_by": "frugal-mock",
+                 "meta": {"ftype": self.behaviour.reported_ftype}},
+            ]})  # fmt: skip
             return
 
         if scope["method"] != "POST" or not scope["path"].endswith("/chat/completions"):
@@ -137,6 +148,7 @@ class MockServer:
         await _send_json(send, 200, {
             "id": "chatcmpl-mock",
             "object": "chat.completion",
+            "system_fingerprint": "mock-build-1",
             "model": request.get("model", "mock"),
             "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
                          "finish_reason": "stop" if b.reply is not None else "length"}],
@@ -151,6 +163,9 @@ class MockServer:
         if self.stats.requests_received <= b.rate_limit_first:
             await _send_json(send, 429, {"error": {"message": "slow down"}},
                              headers=[(b"retry-after", b"0")])  # fmt: skip
+            return
+        if b.fail_after and self.stats.requests_received > b.fail_after:
+            await _send_json(send, 503, {"error": {"message": "mock server went away"}})
             return
         if b.fail_every and self.stats.requests_received % b.fail_every == 0:
             await _send_json(send, 503, {"error": {"message": "mock partial failure"}})
@@ -238,7 +253,11 @@ async def _send_json(send, status: int, payload: dict, headers: list | None = No
         {
             "type": "http.response.start",
             "status": status,
-            "headers": [(b"content-type", b"application/json"), *(headers or [])],
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"server", b"frugal-mock"),
+                *(headers or []),
+            ],
         }
     )
     await send({"type": "http.response.body", "body": json.dumps(payload).encode()})
@@ -258,7 +277,9 @@ def run_mock_server(
     sock.bind(("127.0.0.1", port))
     actual_port = sock.getsockname()[1]
 
-    config = uvicorn.Config(app, log_level="warning", lifespan="on", backlog=2048)
+    config = uvicorn.Config(
+        app, log_level="warning", lifespan="on", backlog=2048, server_header=False
+    )
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()

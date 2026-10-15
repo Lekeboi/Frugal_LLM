@@ -7,7 +7,6 @@ rendered *from* that document, so a report can be regenerated without re-running
 from __future__ import annotations
 
 import json
-import platform
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,8 +14,8 @@ from typing import Any
 
 from rich.table import Table
 
-from frugal_llm import __version__
 from frugal_llm.bench import HTTP_VERSION, BenchConfig, RequestResult, RunResult
+from frugal_llm.environment import client_info, summary_line
 from frugal_llm.metrics import STALL_MS, LevelSummary, Spread, summarise
 
 SCHEMA_VERSION = "0.1"
@@ -50,6 +49,9 @@ def build_document(
     runs: list[RunResult],
     started_at: datetime,
     prompt_seed: int | None = None,
+    server: dict | None = None,
+    meta: dict | None = None,
+    complete: bool = True,
 ) -> dict:
     """The full results document. The API key is never written."""
     return {
@@ -71,8 +73,9 @@ def build_document(
             "cost_per_hour": config.cost_per_hour,
             "currency": config.currency,
         },
+        "complete": complete,
         "environment": {
-            **environment_info(),
+            **environment_info(server, meta),
             "token_count_source": _overall_token_source(runs),
         },
         "runs": [
@@ -92,13 +95,13 @@ def build_document(
     }
 
 
-def environment_info() -> dict:
-    """What every result file records about the machine and tool that produced it."""
+def environment_info(server: dict | None = None, meta: dict | None = None) -> dict:
+    """What every result file records about where it came from (see environment.py)."""
     return {
-        "frugal_llm_version": __version__,
-        "python": platform.python_version(),
-        "platform": platform.platform(),
+        **client_info(),
         "http_version": HTTP_VERSION,
+        "server": server,
+        "meta": meta or {},
     }
 
 
@@ -302,10 +305,22 @@ def render_markdown(doc: dict) -> str:
     def line(cells: list[str]) -> str:
         return "| " + " | ".join(c.rjust(w) for c, w in zip(cells, widths, strict=True)) + " |"
 
+    environment = summary_line(doc["environment"])
     lines = [
         f"## frugal-llm — {cfg['model']} @ {cfg['url']}",
         "",
+        *(
+            []
+            if doc.get("complete", True)
+            else [
+                f"> **Incomplete run.** Stopped after {len(doc['runs'])} of "
+                f"{len(cfg['concurrency']) * cfg['repeats']} runs; the table covers only "
+                "those.",
+                "",
+            ]
+        ),
         config_line,
+        *([f"Environment: {environment}"] if environment else []),
         "",
         line(header),
         "|" + "|".join("-" * (w + 1) + ":" for w in widths) + "|",
@@ -344,6 +359,14 @@ def output_stem(doc: dict) -> str:
     if not label:
         return stamp
     return f"{stamp}-{re.sub(r'[^A-Za-z0-9._-]+', '-', label).strip('-')}"
+
+
+def write_json(doc: dict, path: Path) -> None:
+    """Write then rename, so a crash mid-write never leaves a half-written results file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
+    tmp.replace(path)
 
 
 def write_reports(doc: dict, out_dir: Path, fmt: str) -> list[Path]:

@@ -277,7 +277,14 @@ def _client_config(cfg: QualityConfig) -> BenchConfig:
     )  # fmt: skip
 
 
-def run_header(cfg: QualityConfig, task_sha256: str, n_items: int, started_at: datetime) -> dict:
+def run_header(
+    cfg: QualityConfig,
+    task_sha256: str,
+    n_items: int,
+    started_at: datetime,
+    server: dict | None = None,
+    meta: dict | None = None,
+) -> dict:
     """Everything that defines the run. A resumed run must match it exactly."""
     from frugal_llm.report import environment_info
 
@@ -298,7 +305,7 @@ def run_header(cfg: QualityConfig, task_sha256: str, n_items: int, started_at: d
             "max_tokens": cfg.max_tokens,
             **SAMPLING,
         },
-        "environment": environment_info(),
+        "environment": environment_info(server, meta),
     }
 
 
@@ -318,7 +325,14 @@ class PreparedRun:
     partial_path: Path
 
 
-def prepare_run(cfg: QualityConfig, partial_path: Path, *, resume: bool = False) -> PreparedRun:
+def prepare_run(
+    cfg: QualityConfig,
+    partial_path: Path,
+    *,
+    resume: bool = False,
+    server: dict | None = None,
+    meta: dict | None = None,
+) -> PreparedRun:
     """Load the task, and either start a new partial file or pick up an interrupted one.
 
     Items that failed with an error are not carried over, so a resume retries them.
@@ -326,7 +340,7 @@ def prepare_run(cfg: QualityConfig, partial_path: Path, *, resume: bool = False)
     items, digest = load_task(cfg.task)
     if cfg.limit is not None:
         items = development_subset(items, cfg.limit)
-    header = run_header(cfg, digest, len(items), datetime.now(UTC))
+    header = run_header(cfg, digest, len(items), datetime.now(UTC), server, meta)
     done: dict[str, dict] = {}
     if resume:
         lines = partial_path.read_text(encoding="utf-8").splitlines()

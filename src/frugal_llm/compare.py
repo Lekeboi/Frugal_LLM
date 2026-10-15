@@ -10,6 +10,7 @@ import dataclasses
 import statistics
 from dataclasses import dataclass
 
+from frugal_llm.environment import summary_line
 from frugal_llm.stats import (
     holm,
     mcnemar_exact,
@@ -23,8 +24,19 @@ MUST_MATCH = ("task", "task_version", "task_sha256", "items", "development_subse
               "max_tokens", "temperature", "top_p", "seed")  # fmt: skip
 
 
+# Weight formats a server may report for an unquantised baseline.
+FULL_PRECISION = frozenset({"F32", "F16", "BF16", "FP32", "FP16"})
+
+
 class NotComparable(ValueError):
     pass
+
+
+def reported_weights(doc: dict) -> str | None:
+    """The weight format the server itself reported for this run, if it reported one."""
+    server = (doc.get("environment") or {}).get("server") or {}
+    meta = (server.get("model_entry") or {}).get("meta")
+    return meta.get("ftype") if isinstance(meta, dict) else None
 
 
 def label_of(doc: dict) -> str:
@@ -150,6 +162,12 @@ def compare_runs(
     but left out of the multiple-comparison family.
     """
     warnings = []
+    weights = reported_weights(baseline)
+    if weights and weights.upper() not in FULL_PRECISION:
+        warnings.append(
+            f"the baseline's server reported its weights as {weights}, not full precision. "
+            "Every difference below is measured against a quantised model."
+        )
     for other in [*candidates, *([noise_floor] if noise_floor else [])]:
         warnings += check_comparable(baseline, other)
     results = [compare_pair(baseline, c) for c in candidates]
@@ -194,8 +212,14 @@ def verdict(r: Comparison) -> str:
 
 
 def render_markdown(
-    baseline: dict, results: list[Comparison], floor: Comparison | None, warnings: list[str]
+    baseline: dict,
+    results: list[Comparison],
+    floor: Comparison | None,
+    warnings: list[str],
+    extra_docs: list[dict] | None = None,
 ) -> str:
+    """``extra_docs``: the candidate and noise-floor runs, for their environment lines."""
+    extra_docs = extra_docs or []
     cfg = baseline["config"]
     rows = [r for r in [floor, *results] if r is not None]
     lines = [
@@ -246,6 +270,11 @@ def render_markdown(
             f"| {name} | {_pct(r.answer_agreement)} | {_pct(r.exact_match)} | {first} "
             f"| {r.edit_distance_median:.2f} | {r.no_answer} | {r.truncated} |"
         )
+    runs = [baseline, *extra_docs]
+    environments = [(label_of(d), summary_line(d.get("environment") or {})) for d in runs]
+    if any(env for _, env in environments):
+        lines += ["", "Environment, as each server reported it:", ""]
+        lines += [f"- {name}: {env or 'nothing reported'}" for name, env in environments]
     lines += ["", *(f"- {verdict(r)}" for r in results)]
     if floor:
         lines.append(

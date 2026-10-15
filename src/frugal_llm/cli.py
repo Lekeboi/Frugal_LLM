@@ -101,6 +101,13 @@ def bench(
     out: Annotated[Path, typer.Option(help="Output directory")] = Path("./results"),
     format: Annotated[OutputFormat, typer.Option(help="Report format")] = OutputFormat.both,
     label: Annotated[str | None, typer.Option(help="Free-text tag stored with results")] = None,
+    meta: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--meta",
+            help="key=value the API can't report, e.g. gpu=RTX3060 provider=runpod; repeatable",
+        ),
+    ] = None,
 ) -> None:
     """Run a benchmark sweep against an endpoint."""
     import asyncio
@@ -109,7 +116,8 @@ def bench(
     from rich.live import Live
 
     from frugal_llm import report
-    from frugal_llm.bench import BenchAborted, BenchConfig, run_sweep
+    from frugal_llm.bench import BenchAborted, BenchConfig, make_client, run_sweep
+    from frugal_llm.environment import server_info
     from frugal_llm.metrics import summarise
     from frugal_llm.prompts import FilePrompts, GeneratedPrompts
 
@@ -143,26 +151,50 @@ def bench(
                 "will never have all its requests in flight at once."
             )
 
+    meta_values = _meta_or_exit(meta)
     view = LiveView(config)
     started_at = datetime.now(UTC)
+    seed = getattr(prompt_source, "seed", None)
+    server: dict = {}
+    partial: list[Path] = []
+
+    def save_partial(run) -> None:
+        # Each finished run is saved at once: a crash or dropped connection hours into a
+        # sweep costs the run in progress, not everything before it.
+        view.on_run(run)
+        doc = report.build_document(config, view.runs, started_at, seed, server, meta_values,
+                                    complete=False)  # fmt: skip
+        path = config.out / f"{report.output_stem(doc)}.partial.json"
+        report.write_json(doc, path)
+        partial[:] = [path]
+
+    async def probe_then_sweep():
+        async with make_client(config) as client:
+            server.update(await server_info(client, config.model))
+        return await run_sweep(config, prompt_source, on_request=view.on_request,
+                               on_run=save_partial)  # fmt: skip
+
     try:
         with keep_awake(), Live(view, console=console, refresh_per_second=2):
-            runs = asyncio.run(
-                run_sweep(config, prompt_source, on_request=view.on_request, on_run=view.on_run)
-            )
+            runs = asyncio.run(probe_then_sweep())
         if not console.is_terminal:
             console.line()  # Live leaves its last frame unterminated when not on a TTY
-    except BenchAborted as exc:
-        console.print(f"[bold red]Aborted:[/] {exc}. No results were written.")
-        if "unreachable" in str(exc):
+    except (BenchAborted, KeyboardInterrupt) as exc:
+        reason = "interrupted" if isinstance(exc, KeyboardInterrupt) else str(exc)
+        if partial:
+            console.print(f"[bold red]Aborted:[/] {reason}. Finished runs are saved in "
+                          f"{partial[0]} (marked incomplete).")  # fmt: skip
+        else:
+            console.print(f"[bold red]Aborted:[/] {reason}. No results were written.")
+        if "unreachable" in reason:
             console.print("Is the server running, and does --url include the /v1 prefix?")
         raise typer.Exit(2) from None
 
     # Save first: nothing that happens while displaying may cost the user their data.
-    doc = report.build_document(
-        config, runs, started_at, prompt_seed=getattr(prompt_source, "seed", None)
-    )
+    doc = report.build_document(config, runs, started_at, seed, server, meta_values)
     paths = report.write_reports(doc, config.out, config.format)
+    for path in partial:
+        path.unlink(missing_ok=True)
     for note in report.notes(summarise(runs, config.cost_per_hour), doc):
         console.print(f"- {note}", highlight=False)
     for path in paths:
@@ -234,6 +266,13 @@ def quality(
             exists=True, dir_okay=False, help="Continue an interrupted run from its .partial.jsonl"
         ),
     ] = None,
+    meta: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--meta",
+            help="key=value the API can't report, e.g. gpu=RTX3060 provider=runpod; repeatable",
+        ),
+    ] = None,
 ) -> None:
     """Score a model on a shipped task set with greedy decoding (see docs/quality-method.md)."""
     import asyncio
@@ -262,8 +301,12 @@ def quality(
         stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         stem = output_stem({"started_at": stamp, "label": f"quality-{task.value}-{label or model}"})
         partial = out / f"{stem}.partial.jsonl"
+    meta_values = _meta_or_exit(meta)
+    server = None if resume else asyncio.run(_probe(cfg.url, cfg.model, cfg.api_key))
     try:
-        run = q.prepare_run(cfg, partial, resume=resume is not None)
+        run = q.prepare_run(
+            cfg, partial, resume=resume is not None, server=server, meta=meta_values
+        )
     except q.QualityAborted as exc:
         console.print(f"[bold red]Can't resume:[/] {exc}")
         raise typer.Exit(2) from None
@@ -349,18 +392,41 @@ def compare_command(
         return doc
 
     base = load(baseline)
+    others = [load(p) for p in candidates]
+    floor_doc = load(noise_floor) if noise_floor else None
     try:
-        results, floor, warnings = cmp.compare_runs(
-            base, [load(p) for p in candidates], load(noise_floor) if noise_floor else None
-        )
+        results, floor, warnings = cmp.compare_runs(base, others, floor_doc)
     except cmp.NotComparable as exc:
         console.print(f"[bold red]Not comparable:[/] {exc}")
         raise typer.Exit(2) from None
-    markdown = cmp.render_markdown(base, results, floor, warnings)
+    extra = [*([floor_doc] if floor_doc else []), *others]
+    markdown = cmp.render_markdown(base, results, floor, warnings, extra)
     sys.stdout.buffer.write(markdown.encode("utf-8"))
     sys.stdout.flush()
     if write:
         write.write_text(markdown, encoding="utf-8", newline="\n")
+
+
+def _meta_or_exit(pairs: list[str] | None) -> dict[str, str]:
+    from frugal_llm.environment import parse_meta
+
+    try:
+        return parse_meta(pairs)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--meta") from None
+
+
+async def _probe(url: str, model: str, api_key: str | None) -> dict:
+    import httpx
+
+    from frugal_llm.bench import request_timeout, ssl_context
+    from frugal_llm.environment import server_info
+
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    async with httpx.AsyncClient(
+        base_url=url, headers=headers, timeout=request_timeout(30), verify=ssl_context()
+    ) as client:
+        return await server_info(client, model)
 
 
 @contextlib.contextmanager
