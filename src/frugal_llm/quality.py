@@ -183,6 +183,8 @@ class ItemResult:
     completion_tokens: int | None
     attempts: int
     error: str | None = None
+    # Routers such as OpenRouter name the upstream that answered; None when not reported.
+    served_by: str | None = None
 
 
 def _retry_after(response: httpx.Response, attempt: int) -> float:
@@ -247,6 +249,7 @@ async def ask(
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
             attempts=attempt,
+            served_by=data.get("provider") if isinstance(data.get("provider"), str) else None,
         )
     raise AssertionError("unreachable")
 

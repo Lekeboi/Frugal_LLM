@@ -124,6 +124,18 @@ def _cfg(url: str, **overrides) -> q.QualityConfig:
     return q.QualityConfig(**values)
 
 
+@pytest.mark.parametrize("provider, expected", [("Phala", "Phala"), (None, None), (7, None)])
+async def test_the_upstream_a_router_names_is_recorded(provider, expected):
+    body = {"choices": [{"message": {"content": "The answer is 42."}, "finish_reason": "stop"}]}
+    if provider is not None:
+        body["provider"] = provider
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=body))
+    async with httpx.AsyncClient(base_url="http://x/v1", transport=transport) as client:
+        result = await q.ask(client, task="gsm8k", item=q.TaskItem("t", "?", "42"),
+                             model="m", max_tokens=16, max_retries=0)  # fmt: skip
+    assert result.correct and result.served_by == expected
+
+
 async def test_rate_limited_items_are_retried_not_scored_wrong(mock_endpoint, tmp_path):
     with mock_endpoint(MockBehaviour(reply="Answer: 18", rate_limit_first=2)) as (server, url):
         run = q.prepare_run(_cfg(url, limit=1), tmp_path / "r.partial.jsonl")
