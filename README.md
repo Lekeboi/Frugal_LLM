@@ -1,12 +1,19 @@
 # frugal-llm
 
-How fast, and how expensive, is it to serve *your* model on *your* hardware?
+How fast, and how expensive, is it to serve *your* model on *your* hardware, and what
+do you lose by serving a cheaper version of it?
 
 `frugal-llm` points at any OpenAI-compatible endpoint — vLLM, TGI, SGLang,
-llama.cpp, Ollama or a commercial API — and reports latency percentiles,
-throughput and cost per million output tokens at each concurrency level you ask for.
-It speaks only `POST /v1/chat/completions` with streaming, so there is nothing
-engine-specific to install or configure.
+llama.cpp, Ollama or a commercial API — and reports:
+
+- **`bench`**: latency percentiles, throughput and cost per million output tokens at each
+  concurrency level you ask for;
+- **`quality`** and **`compare`**: how much a quantised model's answers change against
+  full precision, on shipped task sets, with honest statistics;
+- **`cost`**: the traffic above which self-hosting beats a commercial API's per-token price.
+
+It speaks only the OpenAI-compatible `/v1` API, so there is nothing engine-specific to
+install or configure.
 
 ## Quickstart
 
@@ -135,10 +142,10 @@ Each concurrency level is its own distribution; samples are never pooled across
 levels. Within a level, latency samples from all repeats are pooled, while
 throughput and cost show the median run with the min–max range across repeats.
 
-## Measuring quality loss (in development)
+## Measuring quality loss
 
-> Not in the PyPI release yet. Install from this repository to try it:
-> `uvx --from git+https://github.com/Lekeboi/Frugal_LLM frugal-llm quality --help`
+> New in 0.2.0, and so far exercised only on a small (0.5B) model on development subsets.
+> The result format is provisional; see [Results format](#results-format).
 
 Speed is only half the question. Before serving a cheaper (quantised) model, you want to
 know what it costs in output quality. frugal-llm answers that relative to the full-precision
@@ -155,8 +162,10 @@ frugal-llm compare results/*-fp16-a.json results/*-q4_k_m.json --noise-floor res
 - **Task sets ship with the tool**, so everyone runs identical items: all 1,319 GSM8K test
   questions (arithmetic reasoning) and a fixed 1,000-question MMLU subset (knowledge, all 57
   subjects). Both are MIT-licensed; see `src/frugal_llm/tasks/`.
-- **Greedy decoding, fixed prompts, fixed answer-extraction rules**, all decided before any
-  result was produced. The full method, including every change made since and why, is in
+- **Greedy decoding, fixed prompts, fixed answer-extraction rules**, written down before any
+  code existed. Development runs on real models exposed problems (answers read from the wrong
+  place, outputs cut off too early), so some rules were revised before any result was
+  published; every change, and the evidence for it, is logged in
   [docs/quality-method.md](docs/quality-method.md).
 - **`compare` reports both what changed and whether it matters:** accuracy with confidence
   intervals, the paired difference against FP16 with an exact significance test, how often
@@ -167,9 +176,9 @@ frugal-llm compare results/*-fp16-a.json results/*-q4_k_m.json --noise-floor res
   continues where a run stopped. Rate-limited requests (HTTP 429) are retried, honouring
   `Retry-After`, because a quality score needs every question answered.
 
-## Is self-hosting cheaper than an API? (in development)
+## Is self-hosting cheaper than an API?
 
-> Not in the PyPI release yet; install from this repository as above.
+> New in 0.2.0. The result format is provisional; see [Results format](#results-format).
 
 A rented GPU costs the same per hour busy or idle, so "N× cheaper" claims are really claims
 about an assumed load. `frugal-llm cost` answers the real question instead: **above what
@@ -251,6 +260,20 @@ task sets, relative to FP16 (see above).
   `total_timeout`, ...), so a stalled server is distinguishable from a slow one.
 - **HTTP/1.1 only.** HTTP/2 multiplexing would change what "concurrency" means.
   Recorded in every result file.
+
+## Results format
+
+Every run writes JSON with every individual sample, so results can be re-analysed later
+(`report`, `compare` and `cost` all work from saved files). Each file records its
+`schema_version` (`0.1` for `bench`, `quality-0.1` for `quality`) and the full environment:
+the client machine, what the server reported about itself, and your `--meta key=value` notes.
+
+**The format is provisional** (`"schema_status": "provisional"` in every file) until the
+first full study on real hardware is complete. Quality and cost measurement have so far run
+only against a small model, and the real study may show that something must be recorded
+differently. Until then, results from different versions may not be directly comparable,
+and there is no process yet for contributing results; both will come once the format is
+stable.
 
 ## Development
 

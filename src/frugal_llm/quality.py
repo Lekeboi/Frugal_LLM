@@ -24,6 +24,7 @@ from pathlib import Path
 import httpx
 
 from frugal_llm.bench import BenchConfig, classify_error, make_client
+from frugal_llm.report import SCHEMA_STATUS
 
 SCHEMA_VERSION = "quality-0.1"
 TASK_VERSION = "v1"
@@ -290,6 +291,7 @@ def run_header(
 
     return {
         "schema_version": SCHEMA_VERSION,
+        "schema_status": SCHEMA_STATUS,
         "kind": "quality",
         "label": cfg.label,
         "started_at": started_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),

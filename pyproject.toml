@@ -1,11 +1,11 @@
 [project]
 name = "frugal-llm"
-version = "0.1.0"
-description = "Benchmark latency, throughput and cost of any OpenAI-compatible LLM endpoint."
+version = "0.2.0"
+description = "Benchmark latency, throughput, cost and quantisation quality loss of any OpenAI-compatible LLM endpoint."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-keywords = ["llm", "benchmark", "inference", "latency", "throughput", "vllm", "ollama", "openai"]
+keywords = ["llm", "benchmark", "inference", "latency", "throughput", "quantization", "vllm", "ollama", "llama.cpp", "openai"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",

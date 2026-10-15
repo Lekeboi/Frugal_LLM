@@ -19,6 +19,8 @@ from frugal_llm.environment import client_info, summary_line
 from frugal_llm.metrics import STALL_MS, LevelSummary, Spread, summarise
 
 SCHEMA_VERSION = "0.1"
+# Provisional until the first full study on real hardware completes (see README).
+SCHEMA_STATUS = "provisional"
 # Above this p99 event-loop lag the client, not the server, may be shaping latencies.
 CLIENT_LAG_WARN_MS = 50.0
 CURRENCY_SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€", "JPY": "¥", "INR": "₹"}
@@ -56,6 +58,7 @@ def build_document(
     """The full results document. The API key is never written."""
     return {
         "schema_version": SCHEMA_VERSION,
+        "schema_status": SCHEMA_STATUS,
         "label": config.label,
         "started_at": started_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "config": {
