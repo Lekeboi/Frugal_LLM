@@ -223,6 +223,74 @@ def report_command(
         results.with_suffix(".md").write_text(markdown, encoding="utf-8", newline="\n")
 
 
+@app.command("cost")
+def cost_command(
+    results: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, help="A bench results .json file")
+    ],
+    hourly_rate: Annotated[float, typer.Option(min=0, help="What the hardware costs per hour")],
+    rate_source: Annotated[
+        str, typer.Option(help="Where that rate came from, e.g. 'runpod RTX 3090'")
+    ],
+    rate_date: Annotated[str, typer.Option(help="When the rate was quoted, YYYY-MM-DD")],
+    api: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--api",
+            help="A commercial price to compare against, repeatable: "
+            "'name=...,in=<per 1M>,out=<per 1M>,source=...,date=YYYY-MM-DD'",
+        ),
+    ] = None,
+    currency: Annotated[
+        str | None, typer.Option(help="Currency of every price given (default: the results')")
+    ] = None,
+    write: Annotated[
+        Path | None, typer.Option(help="Also write the report to this .md file")
+    ] = None,
+    curve_json: Annotated[
+        Path | None, typer.Option("--curve-json", help="Write break-even curve data for charting")
+    ] = None,
+) -> None:
+    """Compare self-hosting against commercial API prices, from saved benchmark results."""
+    import json
+    from datetime import date
+
+    from frugal_llm import cost_report
+    from frugal_llm.cost import ApiPrice
+    from frugal_llm.report import load_document
+
+    try:
+        date.fromisoformat(rate_date)
+    except ValueError:
+        raise typer.BadParameter("expected YYYY-MM-DD", param_hint="--rate-date") from None
+    try:
+        prices = [ApiPrice.parse(spec) for spec in api or []]
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--api") from None
+    try:
+        doc = load_document(results)
+    except (ValueError, KeyError):
+        raise typer.BadParameter(
+            f"{results} is not a bench result; cost needs measured throughput"
+        ) from None
+
+    rate = cost_report.HourlyRate(hourly_rate, rate_source, rate_date)
+    levels = cost_report.analyse(doc, rate, prices)
+    markdown = cost_report.render_markdown(doc, levels, rate, currency or doc["config"]["currency"])
+    sys.stdout.buffer.write(markdown.encode("utf-8"))
+    sys.stdout.flush()
+    if write:
+        write.write_text(markdown, encoding="utf-8", newline="\n")
+    if curve_json:
+        data = {
+            "results": str(results),
+            "hourly_rate": rate.__dict__,
+            "currency": currency or doc["config"]["currency"],
+            "levels": {str(lv.concurrency): cost_report.curve(lv, rate) for lv in levels},
+        }
+        curve_json.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8", newline="\n")
+
+
 class TaskName(StrEnum):
     gsm8k = "gsm8k"
     mmlu = "mmlu"

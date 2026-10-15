@@ -167,6 +167,29 @@ frugal-llm compare results/*-fp16-a.json results/*-q4_k_m.json --noise-floor res
   continues where a run stopped. Rate-limited requests (HTTP 429) are retried, honouring
   `Retry-After`, because a quality score needs every question answered.
 
+## Is self-hosting cheaper than an API? (in development)
+
+> Not in the PyPI release yet; install from this repository as above.
+
+A rented GPU costs the same per hour busy or idle, so "N× cheaper" claims are really claims
+about an assumed load. `frugal-llm cost` answers the real question instead: **above what
+sustained traffic does self-hosting beat paying per token?** It works from saved `bench`
+results, so prices can be changed without re-running anything:
+
+```bash
+frugal-llm cost results/<bench-run>.json \
+  --hourly-rate 0.44 --rate-source "provider, GPU model, on-demand" --rate-date 2026-10-15 \
+  --api "name=some-model,in=0.15,out=0.60,source=https://provider.example/pricing,date=2026-10-15"
+```
+
+For each concurrency level it reports the measured capacity, the cost per 1,000 requests at
+full use, and against each API price the **break-even traffic** (requests per day) and
+**break-even utilisation**: the share of capacity you must keep busy, around the clock, for
+self-hosting to cost no more. If even 100% use costs more than the API, it says so.
+Requests are compared whole, at the measured tokens in and out, because a GPU-hour has no
+separate input and output price. Rates and prices must carry a source and a date, and are
+never built into the tool. Method and caveats: [docs/cost-method.md](docs/cost-method.md).
+
 ## What this measures and what it doesn't
 
 **`bench` measures** speed and cost of generation as seen by a client: how long until the
