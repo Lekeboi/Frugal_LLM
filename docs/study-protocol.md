@@ -136,3 +136,14 @@ table or chart can be regenerated or checked with `report`, `compare` and `cost`
    instance's capacity (floating-point rounding; most visible as a spike at the final point);
    the instance count is now rounded before it is taken. Neither change alters any measurement
    or table value: regenerated summaries differ from the earlier ones only in the label.
+4. **API comparator** (2026-10-16). Together AI still lists Qwen2.5-7B-Instruct-Turbo at
+   USD 0.30 / 0.30 per 1M tokens but no longer serves it per token: requests are refused
+   with `model_not_available` unless a dedicated (hourly) endpoint is rented. The only live
+   per-token provider found was Phala via OpenRouter (USD 0.10 in / 0.20 out per 1M,
+   2026-10-16; DeepInfra lists the model as deprecated). Phala via OpenRouter becomes the API
+   comparison for cost; Together's listed price is reported only as a listed, unpurchasable
+   price. The API's own quality was measured with the same task sets, settings (greedy,
+   max_tokens 1024, concurrency 16) and statistics as the GPU tiers, in one run per task.
+   OpenRouter does not report the upstream model's precision, and frugal-llm does not record
+   which upstream served each request; Phala was the only provider listed, and served a
+   test request.
