@@ -1,0 +1,22 @@
+{
+  "version": "v1",
+  "tasks": {
+    "gsm8k": {
+      "file": "gsm8k-v1.jsonl",
+      "items": 1319,
+      "sha256": "ba44179ade0f08f512b6c2f60a876a9aa897db03d835a62e994f694689c74ded",
+      "source": "https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl",
+      "source_sha256": "3730d312f6e3440559ace48831e51066acaca737f6eabec99bccb9e4b3c39d14",
+      "license": "MIT, Copyright (c) 2021 OpenAI"
+    },
+    "mmlu": {
+      "file": "mmlu-v1.jsonl",
+      "items": 1000,
+      "sha256": "37ef63d0d4f8de17fc637b893692e8d84c92976e9bb22eaebec0f3ca53605796",
+      "source": "https://huggingface.co/datasets/cais/mmlu/resolve/main/all/test-00000-of-00001.parquet",
+      "source_sha256": "74a41822ce7d3def56e1682f958469c04642a5336a5ce912fa375fdb90fb25d7",
+      "subset": "1000 of 14042, stratified by subject, seed 'frugal-llm-mmlu-v1'",
+      "license": "MIT, Copyright (c) 2020 Dan Hendrycks"
+    }
+  }
+}
