@@ -23,4 +23,11 @@ for format in $FORMATS; do
 done
 echo "[$(date -u +%H:%M:%S)] ALL-CELLS-DONE"
 touch "$OUT/ALL-CELLS-DONE"
+
+# Never leave a GPU billing unattended: after a grace period for collecting the results
+# (normally the pod is deleted well before), the pod stops itself. Stopping keeps its disk.
+GRACE="${STOP_AFTER_MINUTES:-30}"
+echo "[$(date -u +%H:%M:%S)] stopping this pod in ${GRACE} min unless it is deleted first"
+sleep "$((GRACE * 60))"
+python3 "$HERE/pod_selfstop.py" 2>&1 | tee "$OUT/self-stop.log"
 sleep infinity
