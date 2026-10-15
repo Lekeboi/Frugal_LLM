@@ -28,7 +28,7 @@ from frugal_llm.bench import BenchConfig, classify_error, make_client
 SCHEMA_VERSION = "quality-0.1"
 TASK_VERSION = "v1"
 TASKS = ("gsm8k", "mmlu")
-DEFAULT_MAX_TOKENS = {"gsm8k": 512, "mmlu": 32}
+DEFAULT_MAX_TOKENS = {"gsm8k": 1024, "mmlu": 1024}
 # Greedy decoding, identical for every model and format (method note, section 3).
 SAMPLING = {"temperature": 0, "top_p": 1, "seed": 0}
 RETRYABLE = frozenset({429, 503})
@@ -106,13 +106,21 @@ def normalise_number(text: str) -> Decimal | None:
         return None
 
 
+# Models that reason state their result at the end, often as LaTeX \boxed{...}.
+_BOXED_NUMBER = re.compile(r"\\boxed\{\s*(" + _NUMBER + r")\s*\}")
+
+
 def extract_gsm8k(output: str) -> tuple[str | None, str]:
-    """Number after the last 'Answer:', else the last number anywhere; else nothing."""
-    matches = _ANSWER_LINE.findall(output)
-    rule, raw = ("answer_line", matches[-1]) if matches else (None, None)
-    if raw is None:
-        numbers = _ANY_NUMBER.findall(output)
-        rule, raw = ("last_number", numbers[-1]) if numbers else ("none", None)
+    """Number after the last 'Answer:'; else the last \\boxed{N}; else the last number."""
+    raw, rule = None, "none"
+    for name, found in (
+        ("answer_line", _ANSWER_LINE.findall(output)),
+        ("boxed", _BOXED_NUMBER.findall(output)),
+        ("last_number", _ANY_NUMBER.findall(output)),
+    ):
+        if found:
+            raw, rule = found[-1], name
+            break
     value = normalise_number(raw) if raw is not None else None
     if value is None:
         return None, "none"
@@ -121,21 +129,30 @@ def extract_gsm8k(output: str) -> tuple[str | None, str]:
 
 # A leading letter counts only alone or followed by punctuation: "C", "C.", "(C)", "**C**".
 _LEADING_LETTER = re.compile(r"^\W*([ABCD])(?:\s*$|[.):*\]])")
-_ANSWER_IS = re.compile(r"answer\s*(?:is|:)?\s*\W*([ABCD])(?![A-Za-z])", re.IGNORECASE)
+_BOXED_LETTER = re.compile(r"\\boxed\{\s*(?:\\text\{\s*)?([ABCD])(?![A-Za-z])")
+# "the correct answer is: \[ \boxed{D} \]", "The correct option is C. True, False."
+_ANSWER_PHRASE = re.compile(
+    r"(?:answer|option|choice)\s*(?:is|:)?\s*[:\s\\\[\(\*$]*(?:\\boxed\{|\\text\{)?\s*"
+    r"([ABCD])(?![A-Za-z])",
+    re.IGNORECASE,
+)
 _STANDALONE = re.compile(r"(?<![A-Za-z])([ABCD])(?![A-Za-z])")
+# In longer replies a bare letter is usually part of the working, not the answer.
+SHORT_REPLY_WORDS = 20
 
 
 def extract_mmlu(output: str) -> tuple[str | None, str]:
-    """A leading letter ('C', 'C.', '(C)', '**C**'); else 'answer is C'; else the first
-    standalone A-D. The order avoids reading 'A' in 'A good answer is C' as the answer."""
-    for rule, pattern in (
-        ("leading_letter", _LEADING_LETTER),
-        ("answer_phrase", _ANSWER_IS),
-        ("first_letter", _STANDALONE),
-    ):
-        match = pattern.search(output.strip())
-        if match:
-            return match.group(1), rule
+    """In order: a leading letter; the last \\boxed{X}; the last 'answer/option is X';
+    and only for short replies, the first standalone A-D. Otherwise no answer: a guess
+    from a letter inside long reasoning would score noise."""
+    text = output.strip()
+    if match := _LEADING_LETTER.search(text):
+        return match.group(1), "leading_letter"
+    for rule, pattern in (("boxed", _BOXED_LETTER), ("answer_phrase", _ANSWER_PHRASE)):
+        if found := pattern.findall(text):
+            return found[-1].upper(), rule
+    if len(text.split()) <= SHORT_REPLY_WORDS and (match := _STANDALONE.search(text)):
+        return match.group(1), "short_reply_letter"
     return None, "none"
 
 
@@ -213,7 +230,11 @@ async def ask(
             return ItemResult(item.id, None, None, "none", False, None, None, None, attempt, error)
         choice = (data.get("choices") or [{}])[0]
         output = (choice.get("message") or {}).get("content") or ""
-        extracted, rule = EXTRACT[task](output)
+        if choice.get("finish_reason") == "length":
+            # Runaway or cut-off output is never graded from its unfinished text.
+            extracted, rule = None, "truncated"
+        else:
+            extracted, rule = EXTRACT[task](output)
         usage = data.get("usage") or {}
         return ItemResult(
             id=item.id,
@@ -281,6 +302,14 @@ def run_header(cfg: QualityConfig, task_sha256: str, n_items: int, started_at: d
     }
 
 
+def development_subset(items: list[TaskItem], n: int) -> list[TaskItem]:
+    """n items spread evenly through the task file, so every subject is represented.
+    (The first n would be the first few subjects alphabetically.)"""
+    if n >= len(items):
+        return items
+    return [items[i * len(items) // n] for i in range(n)]
+
+
 @dataclass
 class PreparedRun:
     items: list[TaskItem]
@@ -296,7 +325,7 @@ def prepare_run(cfg: QualityConfig, partial_path: Path, *, resume: bool = False)
     """
     items, digest = load_task(cfg.task)
     if cfg.limit is not None:
-        items = items[: cfg.limit]
+        items = development_subset(items, cfg.limit)
     header = run_header(cfg, digest, len(items), datetime.now(UTC))
     done: dict[str, dict] = {}
     if resume:

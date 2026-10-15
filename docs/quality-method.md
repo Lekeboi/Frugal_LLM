@@ -81,7 +81,7 @@ Request settings, identical for every model and format:
 | `temperature` | 0 | Greedy decoding; sampling noise would swamp the quantisation effect |
 | `top_p` | 1 | No truncation of the distribution |
 | `seed` | 0 | Sent for servers that honour it; ignored harmlessly by those that don't |
-| `max_tokens` | GSM8K 512, MMLU 32 | Long enough not to truncate (see the truncation rule below) |
+| `max_tokens` | 1,024 for both | Long enough for real reasoning to finish (see the truncation rule below) |
 | System prompt | none | The model's own chat template only |
 | Shots | zero-shot | No examples in the prompt, so the prompt set is all there is |
 
@@ -94,21 +94,29 @@ Prompt templates, fixed and versioned with the task set:
 
 Answer extraction, fixed in advance:
 
-- **GSM8K:** the number after the last `Answer:` (case-insensitive, and also with a
-  fullwidth colon); if that's absent, the last number in the output. Commas, currency signs
-  and trailing `.0` are removed and values compared as exact decimals. Which rule was used is
-  recorded per item.
-- **MMLU:** in this order: a letter A–D at the start of the output, alone or followed by
-  punctuation (`C`, `C.`, `(C)`, `**C**`); else the letter in a phrase like "the answer is C";
-  else the first standalone letter A–D. The order stops a reply such as "A good answer is C"
-  being read as A. Which rule was used is recorded per item.
+- **GSM8K**, in this order: the number after the last `Answer:` (case-insensitive, and also
+  with a fullwidth colon); else the number in the last `oxed{...}`; else the last number in
+  the output. Commas, currency signs and trailing `.0` are removed and values compared as exact
+  decimals.
+- **MMLU**, in this order: a letter A–D at the start of the output, alone or followed by
+  punctuation (`C`, `C.`, `(C)`, `**C**`); else the letter in the last `oxed{...}`; else the
+  letter in the last phrase like "the correct answer is C" or "the correct option is C" (LaTeX
+  wrapping allowed); else, **only for replies of 20 words or fewer**, the first standalone
+  letter A–D. In a longer reply a bare letter is usually part of the working, so it is not
+  guessed at: the item scores no answer.
+- For both, the *last* stated answer is used, because models that reason state their result at
+  the end. Which rule was used is recorded per item.
+- An output cut off at `max_tokens` is never graded from its unfinished text: it scores no
+  answer, with rule `truncated`.
 - An output with no extractable answer scores as wrong, and the count of such items is reported
   separately, per format. A format that stops producing parseable answers has degraded, and the
   reader should be able to see that this is how.
 
-Truncation rule: if more than 1% of FP16 baseline outputs hit `max_tokens`, the limit is too low.
-It is raised and **every** format is rerun at the new limit. The truncation rate is reported for
-every format.
+Truncation rule: if more than 1% of FP16 baseline outputs hit `max_tokens`, the limit is
+doubled once and **every** format is rerun at the new limit. Outputs that still hit the doubled
+limit are runaway generations (repetition loops or endless enumeration, which no limit fixes):
+they score no answer and their rate is reported for every format. A format that runs away more
+often than FP16 has degraded, and the reader should be able to see that this is how.
 
 Everything is recorded per item: the full output text, the extracted answer, which extraction
 rule applied, `finish_reason`, and token counts. The task set's file is identified by its
@@ -166,8 +174,9 @@ Settled on 2026-10-15, before any quality code or results:
 1. **MMLU subset: 1,000 items.** It keeps a run affordable on a laptop and matches GSM8K's
    resolution. The subset is stratified (a fixed number of items per subject), chosen once with
    a fixed seed, and shipped as a file; the full 14,042 items are not used.
-2. **Development runs use the first 100 items** of a task set, labelled as a development subset
-   in the result file and never published as a result. A full GSM8K run on a laptop CPU takes
+2. **Development runs use 100 items spread evenly through the task set** (every k-th item, so
+   every subject is represented), labelled as a development subset in the result file and never
+   published as a result. A full GSM8K run on a laptop CPU takes
    hours, because every answer generates about 250 tokens at about 15 tokens/s.
 3. **The study model** is chosen in the measurement-matrix workstream (B), not here. The method
    is model-agnostic; development uses Qwen2.5-0.5B-Instruct, which has an FP16 GGUF file and
@@ -178,7 +187,7 @@ Settled on 2026-10-15, before any quality code or results:
 
 The design rule still holds: only the OpenAI-compatible API, no engine-specific code. A quality
 run is a chat-completions request without streaming timing, and the baseline is just another run
-against a different endpoint or model name. The intended interface, to be confirmed when built:
+against a different endpoint or model name. The interface, as built:
 
 ```bash
 frugal-llm quality --url URL --model MODEL --task gsm8k --label fp16-run1
@@ -190,4 +199,26 @@ model, which matters once runs cost money.
 
 ## Changes since first result
 
-None yet.
+1. **MMLU `max_tokens` raised from 32 to 512** (2026-10-15), after the first development run
+   (Qwen2.5-0.5B-Instruct FP16, llama.cpp, 100 items). Despite the "letter only" instruction,
+   the model began reasoning on 17 of 100 items and was cut off at 32 tokens, leaving 13 with
+   no extractable answer and one scored from a stray letter in unfinished reasoning. The
+   truncation rule in section 3 applied as written: the limit was raised and every run repeated.
+   No results from the 32-token runs are used.
+2. **Answer extraction and the output limit revised** (2026-10-15), after inspecting every
+   unclear output of the 512-token development run (same model, 100 MMLU items). None of these
+   results were used either. Three problems were found:
+   - **Fallback scored the wrong letter.** Models that reason end with their answer, usually as
+     `oxed{X}` or "the correct answer is: oxed{X}", and the old rules missed that form and
+     fell back to the *first* standalone letter in the working. 4 of 11 such items were scored
+     A when the model's stated answer was C or D. Rules now take the last `oxed{}` or answer
+     phrase, and only short replies may fall back to a bare letter.
+   - **Cut-off outputs were graded.** Three of six outputs that hit 512 tokens were scored from a
+     stray letter in unfinished reasoning. Cut-off outputs now score no answer.
+   - **512 tokens was too short for real reasoning.** Rerun with room to spare, three of the six
+     cut-off items finished at 513–559 tokens and three ran past 2,048 (runaway). The limit is
+     now 1,024 (512 doubled once, per the revised truncation rule) for both tasks.
+3. **Development subset changed from the first 100 items to 100 evenly spaced items**
+   (2026-10-15). The MMLU file is ordered by subject, so the first 100 items covered only 6 of
+   57 subjects, mostly abstract algebra, which skewed the development runs towards long
+   mathematical reasoning.

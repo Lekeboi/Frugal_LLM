@@ -41,6 +41,8 @@ def test_unknown_task_is_refused():
         ("answer：42", ("42", "answer_line")),  # noqa: RUF001 -- fullwidth colon
         ("The total is 70,000 dollars.", ("70000", "last_number")),
         ("Answer: -3", ("-3", "answer_line")),
+        ("so the total is\n" r"\[ \boxed{18} \]", ("18", "boxed")),
+        (r"Answer: 7 is wrong; \boxed{9}", ("7", "answer_line")),  # explicit line wins
         ("I don't know.", (None, "none")),
     ],
 )
@@ -57,12 +59,39 @@ def test_gsm8k_extraction(output, expected):
         ("**D**", ("D", "leading_letter")),
         ("A good answer is C", ("C", "answer_phrase")),  # not A
         ("The answer is B.", ("B", "answer_phrase")),
-        ("I think B because it fits", ("B", "first_letter")),
+        ("I think B because it fits", ("B", "short_reply_letter")),
         ("None of these.", (None, "none")),
+        # Real Qwen2.5-0.5B outputs: the stated answer is at the end, after working that
+        # contains other letters. The old first-letter rule scored these as A.
+        (
+            "To determine the maximum possible order... A cycle of length 7 and 3 gives 21.\n"
+            "Therefore, the correct answer is:\n"
+            r"\["
+            "\n"
+            r"\boxed{D}"
+            "\n"
+            r"\]",
+            ("D", "boxed"),
+        ),
+        (
+            "Statement 2 is false.\n\n### Final Answer\nThe correct option is C. True, False.",
+            ("C", "answer_phrase"),
+        ),
+        (r"The correct answer is \(\boxed{\text{B}}\).", ("B", "boxed")),
+        # Long working with no stated answer: no guess from a stray letter.
+        (" ".join(["A group of order 6 is cyclic"] * 6), (None, "none")),
     ],
 )
 def test_mmlu_extraction(output, expected):
     assert q.extract_mmlu(output) == expected
+
+
+def test_development_subset_spans_the_whole_task():
+    items, _ = q.load_task("mmlu")
+    subset = q.development_subset(items, 100)
+    assert len(subset) == 100 and subset[0] is items[0]
+    subjects = {i.prompt.split("question about ")[1].split(".\n")[0] for i in subset}
+    assert len(subjects) == 57  # the first 100 items would cover only 6
 
 
 def test_numeric_answers_compare_as_exact_decimals():
@@ -117,6 +146,17 @@ async def test_run_scores_items_with_greedy_decoding(mock_endpoint, tmp_path):
     assert (body["temperature"], body["top_p"], body["seed"], body["stream"]) == (0, 1, 0, False)
     assert doc["config"]["development_subset"] is True
     assert q.summarise_run(doc)["correct"] == 1
+
+
+async def test_cut_off_output_is_never_graded(mock_endpoint, tmp_path):
+    # With no fixed reply the mock emits max_tokens filler words and finish_reason=length;
+    # its text even contains digits, which the last-number rule would otherwise grab.
+    with mock_endpoint() as (_, url):
+        doc = await q.run_quality(
+            _cfg(url, limit=1), q.prepare_run(_cfg(url, limit=1), tmp_path / "p")
+        )
+    (item,) = doc["items"]
+    assert (item["finish_reason"], item["extracted"], item["rule"]) == ("length", None, "truncated")
 
 
 async def test_interrupted_run_resumes_without_redoing_items(mock_endpoint, tmp_path):

@@ -220,7 +220,7 @@ def quality(
         ),
     ] = 1,
     max_tokens: Annotated[
-        int | None, typer.Option(min=1, help="Output cap (default: gsm8k 512, mmlu 32)")
+        int | None, typer.Option(min=1, help="Output cap (default 512; see docs/quality-method.md)")
     ] = None,
     max_retries: Annotated[
         int, typer.Option(min=0, help="Retries per item after HTTP 429/503, honouring Retry-After")
@@ -272,6 +272,8 @@ def quality(
     try:
         with keep_awake(), Live(progress, console=console, refresh_per_second=2):
             doc = asyncio.run(q.run_quality(cfg, run, on_item=progress.on_item))
+        if not console.is_terminal:
+            console.line()  # Live leaves its last frame unterminated when not on a TTY
     except q.QualityAborted as exc:
         console.print(f"[bold red]Aborted:[/] {exc}. Is the server running, and is --model right?")
         if not resume:  # a fresh run that failed on its first request has nothing worth keeping
