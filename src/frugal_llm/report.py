@@ -72,10 +72,7 @@ def build_document(
             "currency": config.currency,
         },
         "environment": {
-            "frugal_llm_version": __version__,
-            "python": platform.python_version(),
-            "platform": platform.platform(),
-            "http_version": HTTP_VERSION,
+            **environment_info(),
             "token_count_source": _overall_token_source(runs),
         },
         "runs": [
@@ -92,6 +89,16 @@ def build_document(
             }
             for run in runs
         ],
+    }
+
+
+def environment_info() -> dict:
+    """What every result file records about the machine and tool that produced it."""
+    return {
+        "frugal_llm_version": __version__,
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "http_version": HTTP_VERSION,
     }
 
 

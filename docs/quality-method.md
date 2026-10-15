@@ -94,10 +94,14 @@ Prompt templates, fixed and versioned with the task set:
 
 Answer extraction, fixed in advance:
 
-- **GSM8K:** the number after the last `Answer:`; if that's absent, the last number in the
-  output. Commas, currency signs and trailing `.0` are removed and values compared as exact
-  decimals. Which rule was used is recorded per item.
-- **MMLU:** the first standalone letter A–D in the output.
+- **GSM8K:** the number after the last `Answer:` (case-insensitive, and also with a
+  fullwidth colon); if that's absent, the last number in the output. Commas, currency signs
+  and trailing `.0` are removed and values compared as exact decimals. Which rule was used is
+  recorded per item.
+- **MMLU:** in this order: a letter A–D at the start of the output, alone or followed by
+  punctuation (`C`, `C.`, `(C)`, `**C**`); else the letter in a phrase like "the answer is C";
+  else the first standalone letter A–D. The order stops a reply such as "A good answer is C"
+  being read as A. Which rule was used is recorded per item.
 - An output with no extractable answer scores as wrong, and the count of such items is reported
   separately, per format. A format that stops producing parseable answers has degraded, and the
   reader should be able to see that this is how.

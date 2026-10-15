@@ -51,6 +51,10 @@ class MockBehaviour:
     cached_prompt_tokens: int | None = None
     """When set, usage reports this many prompt tokens as served from cache."""
     fail_every: int = 0
+    reply: str | None = None
+    """Non-streaming replies return this text (default: 'tok0 tok1 ...' up to max_tokens)."""
+    rate_limit_first: int = 0
+    """The first N requests get HTTP 429 with 'Retry-After: 0', then normal service."""
     """When > 0, every k-th request received fails with HTTP 503 (partial failures)."""
 
 
@@ -59,6 +63,7 @@ class MockStats:
     requests_received: int = 0
     in_flight: int = 0
     max_in_flight: int = 0
+    last_body: dict | None = None
 
 
 class MockServer:
@@ -122,9 +127,31 @@ class MockServer:
         else:
             await _send_json(send, 404, {"error": {"message": "unknown control route"}})
 
+    async def _complete(self, request: dict, send) -> None:
+        """A non-streaming chat completion (quality runs)."""
+        b = self.behaviour
+        await asyncio.sleep(b.first_chunk_delay)
+        n = request.get("max_tokens", 16)
+        text = b.reply if b.reply is not None else " ".join(f"tok{i}" for i in range(n))
+        prompt_tokens = sum(len(str(m.get("content", "")).split()) for m in request["messages"])
+        await _send_json(send, 200, {
+            "id": "chatcmpl-mock",
+            "object": "chat.completion",
+            "model": request.get("model", "mock"),
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
+                         "finish_reason": "stop" if b.reply is not None else "length"}],
+            "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": len(text.split()),
+                      "total_tokens": prompt_tokens + len(text.split())},
+        })  # fmt: skip
+
     async def _handle(self, request: dict, send) -> None:
         b = self.behaviour
 
+        self.stats.last_body = request
+        if self.stats.requests_received <= b.rate_limit_first:
+            await _send_json(send, 429, {"error": {"message": "slow down"}},
+                             headers=[(b"retry-after", b"0")])  # fmt: skip
+            return
         if b.fail_every and self.stats.requests_received % b.fail_every == 0:
             await _send_json(send, 503, {"error": {"message": "mock partial failure"}})
             return
@@ -132,7 +159,7 @@ class MockServer:
             await _send_json(send, b.status_code, {"error": {"message": "mock failure"}})
             return
         if not request.get("stream"):
-            await _send_json(send, 400, {"error": {"message": "mock only supports stream=true"}})
+            await self._complete(request, send)
             return
 
         n_tokens = b.output_tokens if b.output_tokens is not None else request.get("max_tokens", 16)
@@ -206,12 +233,12 @@ async def _send_event(send, payload: dict) -> None:
     await send({"type": "http.response.body", "body": data, "more_body": True})
 
 
-async def _send_json(send, status: int, payload: dict) -> None:
+async def _send_json(send, status: int, payload: dict, headers: list | None = None) -> None:
     await send(
         {
             "type": "http.response.start",
             "status": status,
-            "headers": [(b"content-type", b"application/json")],
+            "headers": [(b"content-type", b"application/json"), *(headers or [])],
         }
     )
     await send({"type": "http.response.body", "body": json.dumps(payload).encode()})

@@ -191,6 +191,176 @@ def report_command(
         results.with_suffix(".md").write_text(markdown, encoding="utf-8", newline="\n")
 
 
+class TaskName(StrEnum):
+    gsm8k = "gsm8k"
+    mmlu = "mmlu"
+
+
+@app.command()
+def quality(
+    url: Annotated[str, typer.Option(help="Base URL, e.g. http://localhost:8080/v1")],
+    model: Annotated[str, typer.Option(help="Model identifier as the server knows it")],
+    task: Annotated[TaskName, typer.Option(help="Task set to score")],
+    api_key: Annotated[
+        str | None, typer.Option(envvar="FRUGAL_LLM_API_KEY", help="Bearer token")
+    ] = None,
+    limit: Annotated[
+        int | None,
+        typer.Option(
+            min=1, help="Score only the first N items: a development subset, never a result"
+        ),
+    ] = None,
+    concurrency: Annotated[
+        int,
+        typer.Option(
+            "-c",
+            "--concurrency",
+            min=1,
+            help="Requests in flight; keep it the same across runs you compare",
+        ),
+    ] = 1,
+    max_tokens: Annotated[
+        int | None, typer.Option(min=1, help="Output cap (default: gsm8k 512, mmlu 32)")
+    ] = None,
+    max_retries: Annotated[
+        int, typer.Option(min=0, help="Retries per item after HTTP 429/503, honouring Retry-After")
+    ] = 8,
+    timeout: Annotated[float, typer.Option(min=0.001, help="Seconds per request phase")] = 300.0,
+    out: Annotated[Path, typer.Option(help="Output directory")] = Path("./results"),
+    label: Annotated[str | None, typer.Option(help="Name for this run, e.g. fp16-run1")] = None,
+    resume: Annotated[
+        Path | None,
+        typer.Option(
+            exists=True, dir_okay=False, help="Continue an interrupted run from its .partial.jsonl"
+        ),
+    ] = None,
+) -> None:
+    """Score a model on a shipped task set with greedy decoding (see docs/quality-method.md)."""
+    import asyncio
+    from datetime import UTC, datetime
+
+    from rich.live import Live
+
+    from frugal_llm import quality as q
+    from frugal_llm.report import output_stem
+
+    cfg = q.QualityConfig(
+        url=url.rstrip("/"),
+        model=model,
+        api_key=api_key,
+        task=task.value,
+        limit=limit,
+        concurrency=concurrency,
+        max_tokens=max_tokens or q.DEFAULT_MAX_TOKENS[task.value],
+        max_retries=max_retries,
+        timeout=timeout,
+        label=label,
+    )
+    if resume:
+        partial = resume
+    else:
+        stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        stem = output_stem({"started_at": stamp, "label": f"quality-{task.value}-{label or model}"})
+        partial = out / f"{stem}.partial.jsonl"
+    try:
+        run = q.prepare_run(cfg, partial, resume=resume is not None)
+    except q.QualityAborted as exc:
+        console.print(f"[bold red]Can't resume:[/] {exc}")
+        raise typer.Exit(2) from None
+
+    progress = QualityProgress(len(run.items), already=len(run.done))
+    try:
+        with keep_awake(), Live(progress, console=console, refresh_per_second=2):
+            doc = asyncio.run(q.run_quality(cfg, run, on_item=progress.on_item))
+    except q.QualityAborted as exc:
+        console.print(f"[bold red]Aborted:[/] {exc}. Is the server running, and is --model right?")
+        if not resume:  # a fresh run that failed on its first request has nothing worth keeping
+            partial.unlink(missing_ok=True)
+        raise typer.Exit(2) from None
+    except KeyboardInterrupt:
+        console.print(
+            f"Interrupted. Finished items are saved; continue with:\n  --resume {partial}"
+        )
+        raise typer.Exit(130) from None
+
+    final = partial.with_name(partial.name.removesuffix(".partial.jsonl") + ".json")
+    q.write_result(doc, final)
+    partial.unlink(missing_ok=True)
+    s = q.summarise_run(doc)
+    if s["scored"]:
+        console.print(
+            f"{s['correct']}/{s['scored']} correct ({s['correct'] / s['scored']:.1%}); "
+            f"{s['no_answer']} with no extractable answer, {s['truncated']} truncated, "
+            f"{s['errors']} errors, {s['retried']} retried after rate limiting."
+        )
+    if cfg.limit:
+        console.print(
+            f"[yellow]Development subset ({cfg.limit} items): not a publishable result.[/]"
+        )
+    console.print(f"Wrote [bold]{final}[/]")
+
+
+class QualityProgress:
+    def __init__(self, total: int, already: int = 0) -> None:
+        self.total, self.done, self.correct, self.errors = total, already, 0, 0
+
+    def on_item(self, result) -> None:
+        self.done += 1
+        self.correct += result.correct
+        self.errors += result.error is not None
+
+    def __rich__(self) -> Text:
+        return Text(
+            f"Scored {self.done}/{self.total} items, {self.correct} correct this session"
+            + (f", {self.errors} errors" if self.errors else ""),
+            style="cyan",
+        )
+
+
+@app.command("compare")
+def compare_command(
+    baseline: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, help="FP16 baseline run (.json)")
+    ],
+    candidates: Annotated[
+        list[Path], typer.Argument(exists=True, dir_okay=False, help="Runs to compare against it")
+    ],
+    noise_floor: Annotated[
+        Path | None,
+        typer.Option(
+            exists=True, dir_okay=False, help="A second baseline run, to measure run-to-run noise"
+        ),
+    ] = None,
+    write: Annotated[
+        Path | None, typer.Option(help="Also write the report to this .md file")
+    ] = None,
+) -> None:
+    """Compare saved quality runs against an FP16 baseline, without re-running anything."""
+    import json
+
+    from frugal_llm import compare as cmp
+
+    def load(path: Path) -> dict:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if doc.get("kind") != "quality":
+            raise typer.BadParameter(f"{path} is not a frugal-llm quality result")
+        return doc
+
+    base = load(baseline)
+    try:
+        results, floor, warnings = cmp.compare_runs(
+            base, [load(p) for p in candidates], load(noise_floor) if noise_floor else None
+        )
+    except cmp.NotComparable as exc:
+        console.print(f"[bold red]Not comparable:[/] {exc}")
+        raise typer.Exit(2) from None
+    markdown = cmp.render_markdown(base, results, floor, warnings)
+    sys.stdout.buffer.write(markdown.encode("utf-8"))
+    sys.stdout.flush()
+    if write:
+        write.write_text(markdown, encoding="utf-8", newline="\n")
+
+
 @contextlib.contextmanager
 def keep_awake() -> Iterator[None]:
     """Best effort: stop the machine idling into sleep mid-benchmark.
