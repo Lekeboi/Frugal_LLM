@@ -22,6 +22,11 @@ a comparison against an FP16 baseline of the same model, measured with:
 
 The baseline is always measured, never taken from a model card or paper.
 
+**"FP16" in this note means the unquantised 16-bit weights exactly as the model's authors
+publish them**, whether FP16 or BF16. Converting between the two would add a step of our own
+to the reference, so the baseline is served in its published precision, which is recorded
+with every result.
+
 ## 2. What is measured
 
 Two methods, from the scope document's three. The third, an LLM judge on open-ended
@@ -128,7 +133,11 @@ SHA-256 hash in every result, so a reader can confirm exactly which items were r
 batching can change the numerics between runs. So the FP16 baseline is run **twice**, and the
 divergence between the two FP16 runs is reported as the noise floor. Divergence of a cheaper
 format is only meaningful above that floor. Both FP16 runs and every quantised run use the same
-concurrency, because batching is one of the noise sources.
+concurrency, because batching is one of the noise sources. The study runs quality at
+**concurrency 16**: batched greedy decoding is less deterministic than one request at a time,
+but that extra noise is measured by the noise floor rather than hidden, and concurrency 1
+would cost about six times as much GPU time. `compare` warns if runs used different
+concurrency.
 
 **Prompt caching.** Quality runs deliberately reuse identical prompts across formats, so server
 prompt caches will hit. Caching should change speed, not output; any effect it does have on the
@@ -222,3 +231,11 @@ model, which matters once runs cost money.
    (2026-10-15). The MMLU file is ordered by subject, so the first 100 items covered only 6 of
    57 subjects, mostly abstract algebra, which skewed the development runs towards long
    mathematical reasoning.
+4. **Baseline precision defined** (2026-10-15, before any study result). The study model,
+   Qwen2.5-7B-Instruct, is published in BF16, not FP16. "FP16" now means the unquantised 16-bit
+   weights as published (section 1), and the baseline is served as published rather than
+   converted.
+5. **Study quality runs fixed at concurrency 16** (2026-10-15, before any study result). At
+   concurrency 1 the full task sets would take about 9 GPU-hours per tier on an RTX 3090 and
+   about 22 on an L4. The rule that every compared run uses the same concurrency is
+   unchanged, so the added batching noise is captured by the noise floor (section 4).

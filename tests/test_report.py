@@ -267,3 +267,24 @@ def test_version_is_consistent_and_results_are_marked_provisional():
     assert __version__ == pyproject["project"]["version"]
     doc = build_document(_config(), [_known_run()], STARTED)
     assert doc["schema_status"] == "provisional"
+
+
+def test_cli_per_level_request_counts(mock_endpoint, tmp_path):
+    with mock_endpoint() as (_, url):
+        result = runner.invoke(app, [
+            "bench", "--url", url, "--model", "mock", "-c", "1,2", "-n", "2,4",
+            "--warmup", "1", "--repeats", "1", "--max-tokens", "2", "--out", str(tmp_path),
+        ])  # fmt: skip
+    assert result.exit_code == 0, result.output
+    (path,) = tmp_path.glob("*.json")
+    doc = load_document(path)
+    assert [len(r["requests"]) for r in doc["runs"]] == [2, 4]
+    assert "requests=2,4" in path.with_suffix(".md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("n", ["2,4,8", "0", "two"])
+def test_cli_rejects_bad_request_counts(n):
+    result = runner.invoke(
+        app, ["bench", "--url", "http://x/v1", "--model", "m", "-c", "1,2", "-n", n]
+    )
+    assert result.exit_code != 0

@@ -49,6 +49,25 @@ def parse_concurrency(value: str) -> list[int]:
     return levels
 
 
+def parse_requests(value: str, levels: list[int]) -> int | list[int]:
+    """``50`` for every level, or ``50,100,200,400`` with one count per concurrency level."""
+    try:
+        counts = [int(part) for part in value.split(",") if part.strip()]
+    except ValueError:
+        raise typer.BadParameter(f"expected integers, got {value!r}", param_hint="-n") from None
+    if not counts or any(n < 1 for n in counts):
+        raise typer.BadParameter("request counts must be positive integers", param_hint="-n")
+    if len(counts) == 1:
+        return counts[0]
+    if len(counts) != len(levels):
+        raise typer.BadParameter(
+            f"{len(counts)} request counts for {len(levels)} concurrency levels; give one count, "
+            "or one per level",
+            param_hint="-n",
+        )
+    return counts
+
+
 def _version_callback(value: bool) -> None:
     if value:
         console.print(f"frugal-llm {__version__}")
@@ -77,8 +96,13 @@ def bench(
         typer.Option("-c", "--concurrency", help="Comma-separated levels to sweep, e.g. 1,4,16"),
     ] = "1",
     requests: Annotated[
-        int, typer.Option("-n", "--requests", min=1, help="Measured requests per level")
-    ] = 50,
+        str,
+        typer.Option(
+            "-n",
+            "--requests",
+            help="Measured requests per run: one count, or one per level, e.g. 50,100,200,400",
+        ),
+    ] = "50",
     max_tokens: Annotated[int, typer.Option(min=1, help="Hard cap on output length")] = 128,
     prompt_tokens: Annotated[
         int, typer.Option(min=1, help="Approx. generated prompt length")
@@ -121,12 +145,13 @@ def bench(
     from frugal_llm.metrics import summarise
     from frugal_llm.prompts import FilePrompts, GeneratedPrompts
 
+    levels = parse_concurrency(concurrency)
     config = BenchConfig(
         url=url.rstrip("/"),
         model=model,
         api_key=api_key,
-        concurrency=parse_concurrency(concurrency),
-        requests=requests,
+        concurrency=levels,
+        requests=parse_requests(requests, levels),
         max_tokens=max_tokens,
         prompt_tokens=prompt_tokens,
         prompts_path=prompts,
@@ -145,9 +170,9 @@ def bench(
         raise typer.BadParameter(str(exc), param_hint="--prompts") from None
 
     for level in config.concurrency:
-        if config.requests < level:
+        if (n := config.requests_for(level)) < level:
             console.print(
-                f"[yellow]Note:[/] -n {config.requests} < concurrency {level}: that level "
+                f"[yellow]Note:[/] -n {n} < concurrency {level}: that level "
                 "will never have all its requests in flight at once."
             )
 
@@ -558,7 +583,7 @@ class LiveView:
             status = Text(
                 f"Run {index + 1}/{self.total_runs}: c={level}, "
                 f"repeat {index % self.config.repeats + 1}/{self.config.repeats}, "
-                f"{self.done_in_run}/{self.config.requests} requests"
+                f"{self.done_in_run}/{self.config.requests_for(level)} requests"
                 + (f", {self.errors_in_run} failed" if self.errors_in_run else ""),
                 style="cyan",
             )

@@ -275,6 +275,10 @@ def notes(summaries: list[LevelSummary], doc: dict) -> list[str]:
     return out
 
 
+def _counts(requests: int | list[int]) -> str:
+    return ",".join(map(str, requests)) if isinstance(requests, list) else str(requests)
+
+
 def _levels(levels: list[int]) -> str:
     return ",".join(str(c) for c in levels)
 
@@ -294,7 +298,7 @@ def render_markdown(doc: dict) -> str:
             if cfg.get("prompts")
             else f"prompt_tokens≈{cfg['prompt_tokens']}"
         )
-        + f", requests={cfg['requests']}, warmup={cfg['warmup']}, repeats={cfg['repeats']}"
+        + f", requests={_counts(cfg['requests'])}, warmup={cfg['warmup']}, repeats={cfg['repeats']}"
     )
     if has_cost:
         config_line += f", {cfg['currency']} {cfg['cost_per_hour']}/hour"

@@ -42,7 +42,8 @@ class BenchConfig:
     model: str
     api_key: str | None
     concurrency: list[int]
-    requests: int
+    requests: int | list[int]
+    """Measured requests per run: one count for every level, or one per level."""
     max_tokens: int
     prompt_tokens: int
     prompts_path: Path | None
@@ -54,6 +55,12 @@ class BenchConfig:
     out: Path
     format: str
     label: str | None
+
+    def requests_for(self, concurrency: int) -> int:
+        """Measured requests per run at this concurrency level."""
+        if isinstance(self.requests, int):
+            return self.requests
+        return self.requests[self.concurrency.index(concurrency)]
 
 
 @functools.cache
@@ -400,7 +407,7 @@ async def run_level(
 
         for repeat in range(config.repeats):
             async with LoopLagMonitor() as lag:
-                results = await _drive(clients, config.requests, send_measured)
+                results = await _drive(clients, config.requests_for(concurrency), send_measured)
             _abort_if_unusable(results, f"c={concurrency} repeat {repeat}")
             # The window opens when the first measured request is sent and closes when
             # the last one completes; warm-up is outside it.
