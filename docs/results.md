@@ -14,13 +14,14 @@ result files by [`analyse_study.py`](https://github.com/Lekeboi/Frugal_LLM/blob/
 
 ## Summary
 
-- **No format showed a significant accuracy loss, but 4-bit may cost about a point on MMLU.**
-  On GSM8K (1,319 items) and an MMLU subset (1,000 items), no quantised format differed
-  significantly from BF16 on any of the three GPUs that ran the quality tests (the A100 was a
-  speed-only reference). Both 4-bit formats did score about one point lower on MMLU on every
-  GPU; taken together, item by item, that is −1.0 points (95% CI −2.2 to +0.2), not
-  significant, so a loss of up to about two points cannot be ruled out. GPTQ 8-bit was
-  indistinguishable from BF16.
+- **Within this study's resolution, no format lost accuracy.** The comparisons could detect
+  differences of about 1–2.3 points; smaller ones are reported as "no difference detected",
+  never as "no loss". On GSM8K (1,319 items) and an MMLU subset (1,000 items), no quantised
+  format differed significantly from BF16 on any of the three GPUs that ran the quality tests
+  (the A100 was a speed-only reference). Both 4-bit formats ran ~1 point lower on MMLU on
+  every GPU. Since the GPUs answered the same questions, that's one result, not three:
+  −1.0 points (95% CI −2.2 to +0.2), below the ~2-point resolution of those comparisons.
+  GPTQ 8-bit was indistinguishable from BF16.
 - **4-bit is 2.1–2.9× faster for a single user and 1.1–1.6× faster under load** than BF16 on
   the same GPU.
 - **Hourly price did not rank cost per token.** At 64 concurrent requests the two consumer
@@ -62,7 +63,8 @@ vLLM-against-TGI studies to vendor benchmarks. Nothing here is claimed to be fir
 closest prior work found is [Bench360](https://arxiv.org/abs/2511.16682) (Stuhlmann, Fadel
 Argerich and Fürst, 2025), which measures quality alongside speed and energy on L4, A10 and
 A30 GPUs, but compares smaller full-precision models with larger quantised ones, so model
-size and precision change together. This study holds the model fixed and varies only its
+size and precision change together, and it measures cost in energy per token, not dollars.
+This study holds the model fixed and varies only its
 precision, tests the quality difference with paired statistics against a measured noise
 floor, adds consumer GPUs, and prices the result against an API, by a method fixed in advance
 and from raw data anyone can check.
@@ -165,6 +167,11 @@ GPU; the second run is the noise floor, showing how much answers change with not
 Differences are paired (same items), with 95% confidence intervals and Holm-corrected exact
 McNemar tests.
 
+**Resolution first.** With these question counts, the smallest difference a comparison could
+detect ranged from about 1 point (GPTQ 8-bit, whose answers barely change) to 2.3 points
+(4-bit formats on MMLU). A smaller difference is reported as "no difference detected", which
+is not the same as "no loss".
+
 | Format | GPU | GSM8K, points vs BF16 (95% CI) | MMLU, points vs BF16 (95% CI) |
 |---|---|---:|---:|
 | AWQ 4-bit | RTX 3090 | −0.8 (−2.1 to +0.6) | −0.9 (−2.4 to +0.6) |
@@ -180,13 +187,11 @@ McNemar tests.
 BF16 itself scored 91.4–91.7% on GSM8K (Qwen reports 91.6%) and 73.8% on MMLU, on all three
 GPUs.
 
-**No difference was detected for any format on any GPU.** Every interval includes zero, and
-differences under about 1–2.3 points (depending on the comparison) are below this study's
-resolution, so "no difference detected" is not "no loss".
+**No difference was detected for any format on any GPU.** Every interval includes zero.
 
-Both 4-bit formats come out about one point lower on MMLU on all three GPUs. That agreement is
-not three pieces of evidence: the GPUs answered the same questions with the same weights, and
-about 30 of the 33 MMLU questions AWQ lost were the same on all three. An exploratory test
+Both 4-bit formats ran ~1 point lower on MMLU on every GPU. Since the GPUs answered the same
+questions, that's one result, not three: they used the same weights, and about 30 of the 33
+MMLU questions AWQ lost were the same on all three. An exploratory test
 (not in the pre-registered plan; [study-protocol.md](study-protocol.md), change 5) therefore
 treats the item, not the GPU, as the unit, averaging each item's difference over the GPUs:
 
