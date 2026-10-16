@@ -30,6 +30,33 @@ result files by [`analyse_study.py`](../scripts/analyse_study.py) and
 - **The API's quality matched the self-hosted baseline,** but its outputs diverged from it as
   much as a 4-bit format's do, and the provider does not say what precision it serves.
 
+## What to do differently
+
+For a 7B-class model served with vLLM, on tasks like these:
+
+- **Pick a GPU by cost per token at your load, not by hourly price.** The cheapest card to rent
+  was the most expensive to run. Measure your own endpoint before choosing:
+  `frugal-llm bench` takes one command, and the hourly rate turns its throughput into a cost.
+- **Quantise.** 4-bit weights showed no detectable accuracy loss here and were up to 2.9×
+  faster. If you cannot accept a possible one-point loss on knowledge questions, GPTQ 8-bit's
+  accuracy stayed within run-to-run noise of BF16 and it was still 1.1–1.8× faster.
+- **Below a few hundred thousand requests a day, pay per token,** if a provider serves the
+  model you want. Above that, a single rented RTX 4090 is cheaper, provided the traffic is
+  steady enough to keep it busy.
+- **Do not assume an API will keep serving a given model, or serve it at full precision.**
+  Of three providers listing this model, one served it per token; it did not say at what
+  precision, and its answers diverged from full precision as much as a 4-bit model's.
+- **Check what transfers.** Arithmetic and multiple-choice knowledge are narrow. If your
+  workload is different (long context, code, open-ended writing), these quality results may
+  not hold for it, and the speed results depend on your prompt and output lengths.
+
+## What this is not
+
+Not new: engine comparisons and quantisation evaluations are plentiful, from peer-reviewed
+vLLM-against-TGI studies to vendor benchmarks. Nothing here is claimed to be first. What this
+study adds is a measurement on GPUs people can afford to rent, with quality loss measured
+alongside speed and cost, by a method fixed in advance, from raw data anyone can check.
+
 ## 1. The harness
 
 The study is fully rerunnable from this repository: the vLLM image is pinned
