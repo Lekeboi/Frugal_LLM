@@ -36,7 +36,7 @@ Written before the first measurement, with every later change logged:
 
 - Source and README: [github.com/Lekeboi/Frugal_LLM](https://github.com/Lekeboi/Frugal_LLM)
 - Package: [pypi.org/project/frugal-llm](https://pypi.org/project/frugal-llm/)
-- Raw data: [study/2026-10-qwen2.5-7b](https://github.com/Lekeboi/Frugal_LLM/tree/master/study/2026-10-qwen2.5-7b)
+- Raw data: [study/2026-10-qwen2.5-7b](https://github.com/Lekeboi/Frugal_LLM/tree/master/study/2026-10-qwen2.5-7b) (also on Hugging Face: [Lekeboi/frugal-llm-qwen2.5-7b-quantisation](https://huggingface.co/datasets/Lekeboi/frugal-llm-qwen2.5-7b-quantisation))
 - Contributing your own results: [CONTRIBUTING.md](https://github.com/Lekeboi/Frugal_LLM/blob/master/CONTRIBUTING.md)
 
 Apache-2.0.

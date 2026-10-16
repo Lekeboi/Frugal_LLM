@@ -3,7 +3,9 @@
 > **Final, 2026-10-16.** The method was fixed before the first measurement in
 > [study-protocol.md](study-protocol.md); every change made after that is listed at the end
 > of that document, with its reason. The raw data is in
-> [`study/2026-10-qwen2.5-7b/`](https://github.com/Lekeboi/Frugal_LLM/tree/master/study/2026-10-qwen2.5-7b).
+> [`study/2026-10-qwen2.5-7b/`](https://github.com/Lekeboi/Frugal_LLM/tree/master/study/2026-10-qwen2.5-7b),
+> and the results files are also published as a Hugging Face dataset:
+> [Lekeboi/frugal-llm-qwen2.5-7b-quantisation](https://huggingface.co/datasets/Lekeboi/frugal-llm-qwen2.5-7b-quantisation).
 
 One model, **Qwen2.5-7B-Instruct**, served with **vLLM 0.30.0** in four formats: BF16 (the
 baseline, as published), AWQ 4-bit, GPTQ 4-bit and GPTQ 8-bit, all from Qwen's own repositories

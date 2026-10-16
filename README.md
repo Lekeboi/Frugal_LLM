@@ -13,7 +13,7 @@ llama.cpp, Ollama or a commercial API — and reports:
 - **`cost`**: the traffic above which self-hosting beats a commercial API's per-token price.
 
 **First study:** Qwen2.5-7B-Instruct in four formats on affordable rented GPUs, with quality
-measured against BF16. See [docs/results.md](docs/results.md); the raw data is in [study/](study/).
+measured against BF16. See [docs/results.md](docs/results.md); the raw data is in [study/](study/) and on Hugging Face as [Lekeboi/frugal-llm-qwen2.5-7b-quantisation](https://huggingface.co/datasets/Lekeboi/frugal-llm-qwen2.5-7b-quantisation).
 
 It speaks only the OpenAI-compatible `/v1` API, so there is nothing engine-specific to
 install or configure.
