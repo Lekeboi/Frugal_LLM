@@ -11,8 +11,9 @@ same method, the same settings and enough recorded context for a stranger to che
 
 ### 1. Measure
 
-Serve your model through any OpenAI-compatible endpoint (vLLM, SGLang, TGI, llama.cpp,
-Ollama, ...), then run the same sequence the study ran for each format
+Serve your model through any OpenAI-compatible server (tested with vLLM, llama.cpp and
+Ollama; SGLang and TGI should work but are untested, so results from them are especially
+welcome), then run the same sequence the study ran for each format
 ([`scripts/run_cell.sh`](scripts/run_cell.sh) is the exact recipe). For one format:
 
 ```bash

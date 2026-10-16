@@ -3,9 +3,10 @@
 How fast, and how expensive, is it to serve *your* model on *your* hardware, and what do you
 lose by serving a cheaper version of it?
 
-frugal-llm is an open-source command-line tool that points at any OpenAI-compatible endpoint
-(vLLM, SGLang, TGI, llama.cpp, Ollama or a commercial API) and measures latency, throughput,
-cost per token, and the quality lost to quantisation, with stated uncertainty.
+frugal-llm is an open-source command-line tool that measures latency, throughput, cost per
+token, and the quality lost to quantisation, with stated uncertainty. It is built for any
+OpenAI-compatible server, and tested with vLLM, llama.cpp and Ollama (quality runs also with
+a commercial API, OpenRouter); SGLang and TGI should work but are untested.
 
 ```bash
 uvx frugal-llm bench --url http://localhost:8000/v1 --model <name>

@@ -3,8 +3,9 @@
 How fast, and how expensive, is it to serve *your* model on *your* hardware, and what
 do you lose by serving a cheaper version of it?
 
-`frugal-llm` points at any OpenAI-compatible endpoint — vLLM, TGI, SGLang,
-llama.cpp, Ollama or a commercial API — and reports:
+`frugal-llm` is built for any OpenAI-compatible server. It has been tested with vLLM,
+llama.cpp and Ollama (quality runs also with a commercial API, OpenRouter); SGLang and TGI
+should work but are untested. It reports:
 
 - **`bench`**: latency percentiles, throughput and cost per million output tokens at each
   concurrency level you ask for;
