@@ -1,0 +1,3 @@
+title: frugal-llm
+description: What it costs to serve an LLM on affordable GPUs, and what quantisation loses.
+theme: jekyll-theme-primer
