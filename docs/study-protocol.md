@@ -160,3 +160,11 @@ table or chart can be regenerated or checked with `report`, `compare` and `cost`
    benchmarks use". That overstated it: some published work runs on smaller cards (Bench360
    uses L4, A10 and A30), so it now reads "a class many published benchmarks use". No method
    or result changes.
+7. **Exploratory pooled MMLU test** (2026-10-16, after all results). Requested because the
+   ~1-point 4-bit MMLU deficit had already been seen, so it is exploratory, like change 5.
+   Answers proved near-deterministic across GPUs (AWQ 100% identical, GPTQ-Int4 99.8%), so
+   the question is the unit. [`scripts/mmlu_4bit_pooled.py`](../scripts/mmlu_4bit_pooled.py)
+   averages each question's correctness over the three GPUs and tests the paired difference
+   (10,000 bootstrap resamples, sign-flip permutation): AWQ −0.90 points (95% CI −2.33 to
+   +0.50), GPTQ-Int4 −1.10 (−2.60 to +0.40), Holm-adjusted p = 0.348 for both. It agrees with
+   change 5's broader test, which stays the one reported in full.

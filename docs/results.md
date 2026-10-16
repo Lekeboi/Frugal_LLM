@@ -212,6 +212,10 @@ MMLU, a loss of up to about two points cannot be ruled out, and a larger questio
 be needed to settle it. [`scripts/pooled_quality.py`](https://github.com/Lekeboi/Frugal_LLM/blob/master/scripts/pooled_quality.py)
 reproduces the table.
 
+A narrower item-level test of the two 4-bit formats on MMLU alone agrees: AWQ −0.90 points
+(95% CI −2.33 to +0.50), GPTQ-Int4 −1.10 (−2.60 to +0.40); both intervals include zero
+([study-protocol.md](study-protocol.md), change 7).
+
 ![Accuracy difference from BF16, RTX 4090](results/quality-rtx4090.png)
 
 ### Different is not worse
