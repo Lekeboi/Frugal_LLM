@@ -257,7 +257,7 @@ def test_heavy_prompt_cache_use_is_flagged():
     assert doc["config"]["prompt_seed"] == 42
 
 
-def test_version_is_consistent_and_results_are_marked_provisional():
+def test_version_is_consistent_and_results_are_marked_stable():
     import tomllib
     from pathlib import Path
 
@@ -266,7 +266,7 @@ def test_version_is_consistent_and_results_are_marked_provisional():
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     assert __version__ == pyproject["project"]["version"]
     doc = build_document(_config(), [_known_run()], STARTED)
-    assert doc["schema_status"] == "provisional"
+    assert doc["schema_status"] == "stable"
 
 
 def test_cli_per_level_request_counts(mock_endpoint, tmp_path):

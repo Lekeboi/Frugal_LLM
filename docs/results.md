@@ -1,32 +1,32 @@
 # Results: what quantisation costs and saves on affordable GPUs
 
-> **Status: draft, 2026-10-16.** The RTX 3090 tier is still running; its figures are marked
-> *pending* and will be added unchanged in method. Everything else below is final for this
-> study. The method was fixed before the first measurement in
+> **Final, 2026-10-16.** The method was fixed before the first measurement in
 > [study-protocol.md](study-protocol.md); every change made after that is listed at the end
-> of that document, with its reason.
+> of that document, with its reason. The raw data is in
+> [`study/2026-10-qwen2.5-7b/`](https://github.com/Lekeboi/Frugal_LLM/tree/master/study/2026-10-qwen2.5-7b).
 
 One model, **Qwen2.5-7B-Instruct**, served with **vLLM 0.30.0** in four formats: BF16 (the
 baseline, as published), AWQ 4-bit, GPTQ 4-bit and GPTQ 8-bit, all from Qwen's own repositories
 and pinned by revision. Each GPU tier ran every format on a single rented pod (RunPod Secure
 Cloud), with the same pinned scripts. Every number on this page is generated from the saved
-result files by [`analyse_study.py`](../scripts/analyse_study.py) and
-[`compare_tiers.py`](../scripts/compare_tiers.py); nothing is typed in by hand.
+result files by [`analyse_study.py`](https://github.com/Lekeboi/Frugal_LLM/blob/master/scripts/analyse_study.py) and
+[`compare_tiers.py`](https://github.com/Lekeboi/Frugal_LLM/blob/master/scripts/compare_tiers.py); nothing is typed in by hand.
 
 ## Summary
 
 - **No format showed a detectable accuracy loss.** On GSM8K (1,319 items) and an MMLU subset
   (1,000 items), every quantised format's difference from BF16 was within run-to-run noise on
-  both GPUs that ran the quality tests. The comparisons could detect differences of about
+  all three GPUs that ran the quality tests. The comparisons could detect differences of about
   1–2.3 points; smaller losses cannot be ruled out.
 - **4-bit is 2.1–2.9× faster for a single user and 1.1–1.6× faster under load** than BF16 on
   the same GPU.
-- **The cheapest GPU per hour was the most expensive per token.** At 64 concurrent requests an
-  RTX 4090 (USD 0.89/h) produced output tokens at about half the cost of an L4 (USD 0.59/h) or
-  an A100 (USD 1.79/h): USD 0.08 per 1M with AWQ, against 0.17 and 0.16.
+- **Hourly price did not rank cost per token.** At 64 concurrent requests the two consumer
+  cards, an RTX 3090 (USD 0.50/h) and an RTX 4090 (USD 0.89/h), produced output tokens at about
+  half the cost of an L4 (USD 0.59/h) or an A100 (USD 1.79/h): with AWQ, USD 0.089 and 0.080
+  per 1M, against 0.169 and 0.159.
 - **Self-hosting beats the only per-token API for this model only at high, steady traffic:**
-  about 440,000 requests a day on an RTX 4090 (21–30% of its measured capacity, around the
-  clock), and more on the other GPUs.
+  about 250,000 requests a day on an RTX 3090 and 440,000 on an RTX 4090 (21–30% of measured
+  capacity, around the clock), and more on the other GPUs.
 - **The API's quality matched the self-hosted baseline,** but its outputs diverged from it as
   much as a 4-bit format's do, and the provider does not say what precision it serves.
 
@@ -34,15 +34,15 @@ result files by [`analyse_study.py`](../scripts/analyse_study.py) and
 
 For a 7B-class model served with vLLM, on tasks like these:
 
-- **Pick a GPU by cost per token at your load, not by hourly price.** The cheapest card to rent
-  was the most expensive to run. Measure your own endpoint before choosing:
+- **Pick a GPU by cost per token at your load, not by hourly price.** The L4, second-cheapest to
+  rent, was the most expensive to run; the RTX 3090 and 4090 were the cheapest. Measure your own endpoint before choosing:
   `frugal-llm bench` takes one command, and the hourly rate turns its throughput into a cost.
 - **Quantise.** 4-bit weights showed no detectable accuracy loss here and were up to 2.9×
   faster. If you cannot accept a possible one-point loss on knowledge questions, GPTQ 8-bit's
-  accuracy stayed within run-to-run noise of BF16 and it was still 1.1–1.8× faster.
+  accuracy stayed within run-to-run noise of BF16 and it was still 1.1–1.9× faster.
 - **Below a few hundred thousand requests a day, pay per token,** if a provider serves the
-  model you want. Above that, a single rented RTX 4090 is cheaper, provided the traffic is
-  steady enough to keep it busy.
+  model you want. Above that, a single rented RTX 3090 or 4090 is cheaper, provided the
+  traffic is steady enough to keep it busy.
 - **Do not assume an API will keep serving a given model, or serve it at full precision.**
   Of three providers listing this model, one served it per token; it did not say at what
   precision, and its answers diverged from full precision as much as a 4-bit model's.
@@ -67,23 +67,23 @@ model, the hourly rate and its date. Raw results are committed with the release 
 this study, so every table and chart can be regenerated, or checked, without rerunning
 anything.
 
-The GPU time for the whole study cost about USD 4 *(final figure pending the RTX 3090 tier)*,
-and the API quality check about USD 0.10.
+The GPU time for the whole study, including a shakedown run, cost about USD 4.40 (RunPod
+billing), and the API quality check about USD 0.10.
 
 ## 2. Speed on affordable GPUs
 
 | GPU | USD/hour | BF16 | AWQ 4-bit | GPTQ 4-bit | GPTQ 8-bit |
 |---|---:|---:|---:|---:|---:|
 | | | *output tokens/s, one request at a time* | | | |
+| RTX 3090 | 0.50 | 49.9 | 138.0 | 138.8 | 92.1 |
 | L4 | 0.59 | 17.6 | 51.5 | 51.8 | 31.3 |
 | RTX 4090 | 0.89 | 62.4 | 162.0 | 162.8 | 104.2 |
 | A100 80GB PCIe | 1.79 | 91.5 | 193.6 | — | — |
-| RTX 3090 | 0.50 | *pending* | *pending* | *pending* | *pending* |
 | | | *output tokens/s, 64 concurrent requests* | | | |
+| RTX 3090 | 0.50 | 1,247 | 1,564 | 1,468 | 1,427 |
 | L4 | 0.59 | 626 | 972 | 924 | 719 |
 | RTX 4090 | 0.89 | 2,102 | 3,075 | 3,000 | 2,464 |
 | A100 80GB PCIe | 1.79 | 2,772 | 3,134 | — | — |
-| RTX 3090 | 0.50 | *pending* | *pending* | *pending* | *pending* |
 
 The A100 is a reference point and ran latency only (BF16 and AWQ). Each figure is the median
 of three repeats; the full tables, with time to first token and inter-token latency at 1, 4,
@@ -93,8 +93,9 @@ of three repeats; the full tables, with time to first token and inter-token late
 
 Quantisation helps most where a GPU is short of memory bandwidth: a single user on the L4 gets
 2.9× the speed from 4-bit weights. Under heavy load the gain shrinks as the GPU becomes
-compute-bound: on the A100, AWQ is only 1.13× BF16 at 64 concurrent requests, and an A100
-running AWQ is barely faster than an RTX 4090 running it (3,134 against 3,075 tokens/s).
+compute-bound: at 64 concurrent requests AWQ is only 1.13× BF16 on the A100 and 1.25× on the
+RTX 3090, and an A100 running AWQ is barely faster than an RTX 4090 running it (3,134 against
+3,075 tokens/s).
 
 ## 3. Cost
 
@@ -103,15 +104,17 @@ kept fully busy at that load. At 64 concurrent requests:
 
 | GPU | USD/hour | BF16 | AWQ 4-bit | GPTQ 4-bit | GPTQ 8-bit |
 |---|---:|---:|---:|---:|---:|
+| RTX 3090 | 0.50 | **0.111** | 0.089 | 0.095 | **0.097** |
 | L4 | 0.59 | 0.262 | 0.169 | 0.177 | 0.228 |
-| RTX 4090 | 0.89 | 0.118 | **0.080** | 0.082 | 0.100 |
+| RTX 4090 | 0.89 | 0.118 | **0.080** | **0.082** | 0.100 |
 | A100 80GB PCIe | 1.79 | 0.179 | 0.159 | — | — |
-| RTX 3090 | 0.50 | *pending* | *pending* | *pending* | *pending* |
 
 ![Cost per 1M output tokens by GPU and format](results/cost-per-mtok.png)
 
 Hourly price does not rank cost per token; throughput does. The RTX 4090 costs 51% more per
-hour than the L4 but produces 3.2–3.4× the tokens.
+hour than the L4 but produces 3.2–3.4× the tokens. The RTX 3090, cheapest per hour, is the
+cheapest per token for BF16 and GPTQ 8-bit; for 4-bit formats the RTX 4090 is 10–14% cheaper,
+because 4-bit weights speed the RTX 3090 up less under load (1.25× against the 4090's 1.46×).
 
 ### Against an API
 
@@ -127,10 +130,10 @@ concurrent requests, self-hosting becomes cheaper than the API above:
 
 | GPU | Break-even traffic, requests/day | Utilisation needed, around the clock |
 |---|---:|---:|
+| RTX 3090 | about 250,000 | 23% (4-bit) to 29% (BF16) |
 | RTX 4090 | about 440,000 | 21% (4-bit) to 30% (BF16) |
 | L4 | about 300,000 | 44% (4-bit) to 67% (BF16) |
 | A100 80GB PCIe | about 890,000 | 41% (AWQ) to 46% (BF16) |
-| RTX 3090 | *pending* | *pending* |
 
 Break-even traffic barely depends on the format, because one instance is rented either way;
 the format changes how much of that instance the traffic uses, and so how much headroom is
@@ -152,23 +155,25 @@ McNemar tests.
 
 | Format | GPU | GSM8K, points vs BF16 (95% CI) | MMLU, points vs BF16 (95% CI) |
 |---|---|---:|---:|
-| AWQ 4-bit | RTX 4090 | −0.7 (−2.0 to +0.7) | −0.9 (−2.4 to +0.6) |
+| AWQ 4-bit | RTX 3090 | −0.8 (−2.1 to +0.6) | −0.9 (−2.4 to +0.6) |
+| | RTX 4090 | −0.7 (−2.0 to +0.7) | −0.9 (−2.4 to +0.6) |
 | | L4 | −0.8 (−2.2 to +0.5) | −0.9 (−2.4 to +0.6) |
-| GPTQ 4-bit | RTX 4090 | +0.2 (−1.2 to +1.5) | −1.2 (−2.8 to +0.4) |
+| GPTQ 4-bit | RTX 3090 | +0.0 (−1.3 to +1.3) | −1.0 (−2.6 to +0.5) |
+| | RTX 4090 | +0.2 (−1.2 to +1.5) | −1.2 (−2.8 to +0.4) |
 | | L4 | −0.2 (−1.5 to +1.2) | −1.1 (−2.7 to +0.5) |
-| GPTQ 8-bit | RTX 4090 | +0.2 (−0.7 to +1.2) | +0.1 (−0.4 to +0.6) |
+| GPTQ 8-bit | RTX 3090 | +0.0 (−0.9 to +0.9) | +0.1 (−0.6 to +0.8) |
+| | RTX 4090 | +0.2 (−0.7 to +1.2) | +0.1 (−0.4 to +0.6) |
 | | L4 | −0.2 (−1.1 to +0.8) | +0.0 (−0.8 to +0.8) |
-| RTX 3090, all formats | | *pending* | *pending* |
 
-BF16 itself scored 91.4% and 91.7% on GSM8K (RTX 4090, L4; Qwen reports 91.6%) and 73.8% on
-MMLU on both.
+BF16 itself scored 91.4–91.7% on GSM8K (Qwen reports 91.6%) and 73.8% on MMLU, on all three
+GPUs.
 
-**No difference was detected for any format on either GPU.** Every interval includes zero, and
-differences under about 1.0–2.3 points (depending on the comparison) are below this study's
+**No difference was detected for any format on any GPU.** Every interval includes zero, and
+differences under about 1–2.3 points (depending on the comparison) are below this study's
 resolution, so "no difference detected" is not "no loss".
 
-Both 4-bit formats come out about one point lower on MMLU on both GPUs. Because both GPUs
-answered the same questions, this agreement shows the result is reproducible; it is not a
+Both 4-bit formats come out about one point lower on MMLU on all three GPUs. Because every
+GPU answered the same questions, this agreement shows the result is reproducible; it is not a
 second, independent sample, and it does not make the difference significant. A larger
 question set would be needed to say whether a one-point MMLU loss is real.
 
@@ -181,10 +186,10 @@ Quantised formats change answers far more than they change accuracy:
 | | GSM8K, same final answer as BF16 | MMLU, same final answer as BF16 |
 |---|---:|---:|
 | BF16 rerun (noise floor) | 96.4–97.0% | 99.0–99.5% |
-| GPTQ 8-bit | 95.5–95.6% | 98.3–99.3% |
+| GPTQ 8-bit | 95.5–95.7% | 98.3–99.3% |
 | AWQ / GPTQ 4-bit | 91.6–92.5% | 91.1–92.3% |
 
-(Ranges span the two GPUs.) 8-bit is close to the noise floor; 4-bit changes about one answer
+(Ranges span the three GPUs.) 8-bit is close to the noise floor; 4-bit changes about one answer
 in twelve, gaining roughly as many right answers as it loses.
 
 ### The API
@@ -214,12 +219,13 @@ study:
 ## Reproducing
 
 ```bash
-uv run --with matplotlib python scripts/analyse_study.py results/t1-rtx4090 \
-    --tier t1-rtx4090 --out results/analysis/t1-rtx4090 \
+S=study/2026-10-qwen2.5-7b
+uv run --with matplotlib python scripts/analyse_study.py $S/t1-rtx4090 \
+    --tier t1-rtx4090 --out analysis/t1-rtx4090 \
     --api "name=phala-via-openrouter,in=0.10,out=0.20,source=https://openrouter.ai/api/v1/models/qwen/qwen-2.5-7b-instruct/endpoints,date=2026-10-16"
 uv run --with matplotlib python scripts/compare_tiers.py \
-    results/t1-rtx4090 results/t2-l4 results/ref-a100 --out results/analysis/tiers
+    $S/t1-rtx3090 $S/t1-rtx4090 $S/t2-l4 $S/ref-a100 --out analysis/tiers
 ```
 
-Each GPU cell is [`scripts/run_cell.sh`](../scripts/run_cell.sh), run on a pod by
-[`scripts/pod_entry.sh`](../scripts/pod_entry.sh).
+Each GPU cell is [`scripts/run_cell.sh`](https://github.com/Lekeboi/Frugal_LLM/blob/master/scripts/run_cell.sh), run on a pod by
+[`scripts/pod_entry.sh`](https://github.com/Lekeboi/Frugal_LLM/blob/master/scripts/pod_entry.sh).

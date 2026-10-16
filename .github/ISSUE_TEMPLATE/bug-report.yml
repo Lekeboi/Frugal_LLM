@@ -1,0 +1,34 @@
+name: Bug report
+description: Something frugal-llm did wrong
+labels: ["bug"]
+body:
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened (full output)
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Output of `frugal-llm --version`
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: Server (engine and version, or API provider)

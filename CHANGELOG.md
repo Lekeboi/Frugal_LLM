@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+The first study is complete ([docs/results.md](docs/results.md)) and its raw results are in
+[`study/`](study/). The result format ran through it unchanged and is now **stable**
+(`"schema_status": "stable"`); results can be contributed in it ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 - Reports label the server's `system_fingerprint` "fingerprint", not "build": vLLM issues a
   new one at every launch.

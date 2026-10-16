@@ -1,0 +1,60 @@
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
++ mkdir -p /workspace/results/t1-rtx3090
+[23:02:11] starting vLLM: Qwen/Qwen2.5-7B-Instruct@a09a35458c702b33eeacc393d103063234e8bc28
+[23:04:31] bench
++ /opt/frugal-llm/bin/frugal-llm bench --url http://127.0.0.1:8000/v1 --model qwen2.5-7b -c 1,4,16,64 -n 50,100,200,400 --repeats 3 --max-tokens 128 --cost-per-hour 0.50 --currency USD --label t1-rtx3090-bf16 --out /workspace/results/t1-rtx3090 --meta tier=t1-rtx3090 --meta format=bf16 --meta weights=Qwen/Qwen2.5-7B-Instruct@a09a35458c702b33eeacc393d103063234e8bc28 --meta gpu=NVIDIA GeForce RTX 3090 --meta driver=580.126.20 --meta vllm=0.30.0 --meta provider=runpod-secure --meta rate_usd_per_hour=0.50 --meta rate_date=2026-10-15
+frugal-llm results                                                              
+┏━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━┓
+┃ Conc ┃ TTFT p50 ┃ TTFT p95 ┃ ITL p50 ┃    Thrpt tok/s ┃       $/1M tok ┃ Err ┃
+┡━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━┩
+│    1 │     73ms │     83ms │    20ms │           49.9 │           2.79 │  0% │
+│      │          │          │         │    (49.8-49.9) │    (2.79-2.79) │     │
+│    4 │     98ms │    193ms │    21ms │          185.2 │           0.75 │  0% │
+│      │          │          │         │  (183.6-186.1) │    (0.75-0.76) │     │
+│   16 │    151ms │    551ms │    25ms │          591.1 │           0.23 │  0% │
+│      │          │          │         │  (587.5-593.4) │    (0.23-0.24) │     │
+│   64 │    918ms │   2154ms │    42ms │         1246.9 │           0.11 │  0% │
+│      │          │          │         │ (1211.3-1288.… │    (0.11-0.11) │     │
+└──────┴──────────┴──────────┴─────────┴────────────────┴────────────────┴─────┘
+Done: 12 runs.
+- Latency percentiles pool the 3 repeats at each level (never across levels). 
+Throughput and cost show the median run (min-max).
+- Prompt length as counted by the server: median 233-235 tokens (requested ≈200,
+including the chat template).
+- HTTP/1.1, one connection per concurrent request. Measures speed and cost only;
+output quality is not measured.
+Wrote /workspace/results/t1-rtx3090/20261015T230432Z-t1-rtx3090-bf16.json
+Wrote /workspace/results/t1-rtx3090/20261015T230432Z-t1-rtx3090-bf16.md
+[23:18:27] quality gsm8k t1-rtx3090-bf16-a
++ /opt/frugal-llm/bin/frugal-llm quality --url http://127.0.0.1:8000/v1 --model qwen2.5-7b --task gsm8k -c 16 --label t1-rtx3090-bf16-a --out /workspace/results/t1-rtx3090 --meta tier=t1-rtx3090 --meta format=bf16 --meta weights=Qwen/Qwen2.5-7B-Instruct@a09a35458c702b33eeacc393d103063234e8bc28 --meta gpu=NVIDIA GeForce RTX 3090 --meta driver=580.126.20 --meta vllm=0.30.0 --meta provider=runpod-secure --meta rate_usd_per_hour=0.50 --meta rate_date=2026-10-15
+Scored 1319/1319 items, 1209 correct this session
+1209/1319 correct (91.7%); 0 with no extractable answer, 0 truncated, 0 errors, 
+0 retried after rate limiting.
+Wrote 
+/workspace/results/t1-rtx3090/20261015T231827Z-quality-gsm8k-t1-rtx3090-bf16-a.j
+son
+[23:26:31] quality gsm8k t1-rtx3090-bf16-b
++ /opt/frugal-llm/bin/frugal-llm quality --url http://127.0.0.1:8000/v1 --model qwen2.5-7b --task gsm8k -c 16 --label t1-rtx3090-bf16-b --out /workspace/results/t1-rtx3090 --meta tier=t1-rtx3090 --meta format=bf16 --meta weights=Qwen/Qwen2.5-7B-Instruct@a09a35458c702b33eeacc393d103063234e8bc28 --meta gpu=NVIDIA GeForce RTX 3090 --meta driver=580.126.20 --meta vllm=0.30.0 --meta provider=runpod-secure --meta rate_usd_per_hour=0.50 --meta rate_date=2026-10-15
+Scored 1319/1319 items, 1210 correct this session
+1210/1319 correct (91.7%); 1 with no extractable answer, 1 truncated, 0 errors, 
+0 retried after rate limiting.
+Wrote 
+/workspace/results/t1-rtx3090/20261015T232631Z-quality-gsm8k-t1-rtx3090-bf16-b.j
+son
+[23:34:36] quality mmlu t1-rtx3090-bf16-a
++ /opt/frugal-llm/bin/frugal-llm quality --url http://127.0.0.1:8000/v1 --model qwen2.5-7b --task mmlu -c 16 --label t1-rtx3090-bf16-a --out /workspace/results/t1-rtx3090 --meta tier=t1-rtx3090 --meta format=bf16 --meta weights=Qwen/Qwen2.5-7B-Instruct@a09a35458c702b33eeacc393d103063234e8bc28 --meta gpu=NVIDIA GeForce RTX 3090 --meta driver=580.126.20 --meta vllm=0.30.0 --meta provider=runpod-secure --meta rate_usd_per_hour=0.50 --meta rate_date=2026-10-15
+Scored 1000/1000 items, 738 correct this session
+738/1000 correct (73.8%); 0 with no extractable answer, 0 truncated, 0 errors, 0
+retried after rate limiting.
+Wrote 
+/workspace/results/t1-rtx3090/20261015T233436Z-quality-mmlu-t1-rtx3090-bf16-a.js
+on
+[23:35:03] quality mmlu t1-rtx3090-bf16-b
++ /opt/frugal-llm/bin/frugal-llm quality --url http://127.0.0.1:8000/v1 --model qwen2.5-7b --task mmlu -c 16 --label t1-rtx3090-bf16-b --out /workspace/results/t1-rtx3090 --meta tier=t1-rtx3090 --meta format=bf16 --meta weights=Qwen/Qwen2.5-7B-Instruct@a09a35458c702b33eeacc393d103063234e8bc28 --meta gpu=NVIDIA GeForce RTX 3090 --meta driver=580.126.20 --meta vllm=0.30.0 --meta provider=runpod-secure --meta rate_usd_per_hour=0.50 --meta rate_date=2026-10-15
+Scored 1000/1000 items, 737 correct this session
+737/1000 correct (73.7%); 0 with no extractable answer, 0 truncated, 0 errors, 0
+retried after rate limiting.
+Wrote 
+/workspace/results/t1-rtx3090/20261015T233503Z-quality-mmlu-t1-rtx3090-bf16-b.js
+on
+[23:35:30] cell done: t1-rtx3090 bf16 -> /workspace/results/t1-rtx3090 (copy it off the pod now)

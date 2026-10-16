@@ -1,0 +1,68 @@
+name: Result submission
+description: Share frugal-llm results from your own hardware
+title: "[result] <GPU> / <model> / <formats>"
+labels: ["result"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. Please follow CONTRIBUTING.md ("Contributing results") first; a result is
+        only comparable if it was measured the same way. Attach your JSON files as a .zip below.
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU, and where it ran
+      placeholder: "RTX 3060 12GB, own machine / RunPod Secure Cloud"
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model and formats, with revisions
+      placeholder: "Qwen/Qwen2.5-7B-Instruct@a09a354…; AWQ@b250375…"
+    validations:
+      required: true
+  - type: input
+    id: engine
+    attributes:
+      label: Serving engine and version
+      placeholder: "vLLM 0.30.0"
+    validations:
+      required: true
+  - type: input
+    id: rate
+    attributes:
+      label: Hourly rate, its source and date (or "own hardware, no rate")
+      placeholder: "USD 0.25/h, RunPod Secure, 2026-10-16"
+    validations:
+      required: true
+  - type: dropdown
+    id: method
+    attributes:
+      label: Method
+      options:
+        - Unchanged (as in CONTRIBUTING.md and scripts/run_cell.sh)
+        - Changed (explained below)
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: Every bench file is complete, and every quality run answered every item
+          required: true
+        - label: BF16/FP16 was run twice (the noise floor) if quality is included
+        - label: The files contain nothing private
+          required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else (errors, truncations, method changes, surprises)
+  - type: textarea
+    id: files
+    attributes:
+      label: Result files (.zip)
+      description: Drag the zip of your JSON files here.
+    validations:
+      required: true

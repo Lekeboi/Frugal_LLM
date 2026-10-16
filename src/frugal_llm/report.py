@@ -20,7 +20,7 @@ from frugal_llm.metrics import STALL_MS, LevelSummary, Spread, summarise
 
 SCHEMA_VERSION = "0.1"
 # Provisional until the first full study on real hardware completes (see README).
-SCHEMA_STATUS = "provisional"
+SCHEMA_STATUS = "stable"
 # Above this p99 event-loop lag the client, not the server, may be shaping latencies.
 CLIENT_LAG_WARN_MS = 50.0
 CURRENCY_SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€", "JPY": "¥", "INR": "₹"}

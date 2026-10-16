@@ -13,7 +13,7 @@ llama.cpp, Ollama or a commercial API — and reports:
 - **`cost`**: the traffic above which self-hosting beats a commercial API's per-token price.
 
 **First study:** Qwen2.5-7B-Instruct in four formats on affordable rented GPUs, with quality
-measured against BF16. See [docs/results.md](docs/results.md) (draft; one tier still running).
+measured against BF16. See [docs/results.md](docs/results.md); the raw data is in [study/](study/).
 
 It speaks only the OpenAI-compatible `/v1` API, so there is nothing engine-specific to
 install or configure.
@@ -147,8 +147,8 @@ throughput and cost show the median run with the min–max range across repeats.
 
 ## Measuring quality loss
 
-> New in 0.2.0, and so far exercised only on a small (0.5B) model on development subsets.
-> The result format is provisional; see [Results format](#results-format).
+> Used for the first study: Qwen2.5-7B-Instruct in four formats, on three GPUs and an API
+> ([docs/results.md](docs/results.md)).
 
 Speed is only half the question. Before serving a cheaper (quantised) model, you want to
 know what it costs in output quality. frugal-llm answers that relative to the full-precision
@@ -181,7 +181,7 @@ frugal-llm compare results/*-fp16-a.json results/*-q4_k_m.json --noise-floor res
 
 ## Is self-hosting cheaper than an API?
 
-> New in 0.2.0. The result format is provisional; see [Results format](#results-format).
+> Used for the first study's break-even comparison ([docs/results.md](docs/results.md)).
 
 A rented GPU costs the same per hour busy or idle, so "N× cheaper" claims are really claims
 about an assumed load. `frugal-llm cost` answers the real question instead: **above what
@@ -271,12 +271,13 @@ Every run writes JSON with every individual sample, so results can be re-analyse
 `schema_version` (`0.1` for `bench`, `quality-0.1` for `quality`) and the full environment:
 the client machine, what the server reported about itself, and your `--meta key=value` notes.
 
-**The format is provisional** (`"schema_status": "provisional"` in every file) until the
-first full study on real hardware is complete. Quality and cost measurement have so far run
-only against a small model, and the real study may show that something must be recorded
-differently. Until then, results from different versions may not be directly comparable,
-and there is no process yet for contributing results; both will come once the format is
-stable.
+**The format is stable from 0.3.0** (`"schema_status": "stable"`), after the first full
+study ran on it unchanged. Results with the same `schema_version` are comparable across
+versions of the tool. Fields may be added (0.3.0 added `served_by` to quality items) and
+readers treat a missing field as unreported; a field is never removed or renamed without a
+new `schema_version`. Files from 0.2.x say `"provisional"` but use the same format.
+
+To contribute your own results in this format, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Development
 

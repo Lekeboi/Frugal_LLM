@@ -1,0 +1,4 @@
+self-stop: REST stop -> HTTP 403 error code: 1010
+
+self-stop: GraphQL podStop -> HTTP 200 {"data":{"podStop":{"id":"0c6kygdkc2o6dw","desiredStatus":"EXITED"}}}
+

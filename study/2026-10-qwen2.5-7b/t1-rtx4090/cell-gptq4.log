@@ -1,0 +1,43 @@
++ mkdir -p /workspace/results/t1-rtx4090
+[15:51:49] starting vLLM: Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4@e9c932ac1893a49ae0fc497ad6e1e86e2e39af20
+[15:54:00] bench
++ /opt/frugal-llm/bin/frugal-llm bench --url http://127.0.0.1:8000/v1 --model qwen2.5-7b -c 1,4,16,64 -n 50,100,200,400 --repeats 3 --max-tokens 128 --cost-per-hour 0.89 --currency USD --label t1-rtx4090-gptq4 --out /workspace/results/t1-rtx4090 --meta tier=t1-rtx4090 --meta format=gptq4 --meta weights=Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4@e9c932ac1893a49ae0fc497ad6e1e86e2e39af20 --meta gpu=NVIDIA GeForce RTX 4090 --meta driver=595.91.07 --meta vllm=0.30.0 --meta provider=runpod-secure --meta rate_usd_per_hour=0.89 --meta rate_date=2026-10-15
+frugal-llm results                                                              
+┏━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━┓
+┃ Conc ┃ TTFT p50 ┃ TTFT p95 ┃ ITL p50 ┃    Thrpt tok/s ┃       $/1M tok ┃ Err ┃
+┡━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━┩
+│    1 │     34ms │     38ms │     6ms │          162.8 │           1.52 │  0% │
+│      │          │          │         │  (162.3-163.1) │    (1.52-1.52) │     │
+│    4 │     40ms │     87ms │     6ms │          586.1 │           0.42 │  0% │
+│      │          │          │         │  (584.9-590.5) │    (0.42-0.42) │     │
+│   16 │     76ms │    283ms │     8ms │         1733.9 │           0.14 │  0% │
+│      │          │          │         │ (1730.2-1736.… │    (0.14-0.14) │     │
+│   64 │    308ms │   1063ms │    18ms │         2999.5 │           0.08 │  0% │
+│      │          │          │         │ (2977.9-3013.… │    (0.08-0.08) │     │
+└──────┴──────────┴──────────┴─────────┴────────────────┴────────────────┴─────┘
+Done: 12 runs.
+- Latency percentiles pool the 3 repeats at each level (never across levels). 
+Throughput and cost show the median run (min-max).
+- Prompt length as counted by the server: median 232-234 tokens (requested ≈200,
+including the chat template).
+- HTTP/1.1, one connection per concurrent request. Measures speed and cost only;
+output quality is not measured.
+Wrote /workspace/results/t1-rtx4090/20261015T155400Z-t1-rtx4090-gptq4.json
+Wrote /workspace/results/t1-rtx4090/20261015T155400Z-t1-rtx4090-gptq4.md
+[15:58:31] quality gsm8k t1-rtx4090-gptq4
++ /opt/frugal-llm/bin/frugal-llm quality --url http://127.0.0.1:8000/v1 --model qwen2.5-7b --task gsm8k -c 16 --label t1-rtx4090-gptq4 --out /workspace/results/t1-rtx4090 --meta tier=t1-rtx4090 --meta format=gptq4 --meta weights=Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4@e9c932ac1893a49ae0fc497ad6e1e86e2e39af20 --meta gpu=NVIDIA GeForce RTX 4090 --meta driver=595.91.07 --meta vllm=0.30.0 --meta provider=runpod-secure --meta rate_usd_per_hour=0.89 --meta rate_date=2026-10-15
+Scored 1319/1319 items, 1208 correct this session
+1208/1319 correct (91.6%); 0 with no extractable answer, 0 truncated, 0 errors, 
+0 retried after rate limiting.
+Wrote 
+/workspace/results/t1-rtx4090/20261015T155832Z-quality-gsm8k-t1-rtx4090-gptq4.js
+on
+[16:01:01] quality mmlu t1-rtx4090-gptq4
++ /opt/frugal-llm/bin/frugal-llm quality --url http://127.0.0.1:8000/v1 --model qwen2.5-7b --task mmlu -c 16 --label t1-rtx4090-gptq4 --out /workspace/results/t1-rtx4090 --meta tier=t1-rtx4090 --meta format=gptq4 --meta weights=Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4@e9c932ac1893a49ae0fc497ad6e1e86e2e39af20 --meta gpu=NVIDIA GeForce RTX 4090 --meta driver=595.91.07 --meta vllm=0.30.0 --meta provider=runpod-secure --meta rate_usd_per_hour=0.89 --meta rate_date=2026-10-15
+Scored 1000/1000 items, 726 correct this session
+726/1000 correct (72.6%); 0 with no extractable answer, 0 truncated, 0 errors, 0
+retried after rate limiting.
+Wrote 
+/workspace/results/t1-rtx4090/20261015T160101Z-quality-mmlu-t1-rtx4090-gptq4.jso
+n
+[16:01:17] cell done: t1-rtx4090 gptq4 -> /workspace/results/t1-rtx4090 (copy it off the pod now)
