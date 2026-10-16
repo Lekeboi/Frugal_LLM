@@ -19,9 +19,9 @@ cost compared with the only API still serving the model per token.
 
 - Hourly price did not predict cost per token: the L4 was the most expensive per token, and
   the consumer RTX 3090 and 4090 cost about half as much.
-- Within the study's ~1–2-point resolution, no quantised format lost accuracy. Both 4-bit
-  formats ran ~1 point lower on MMLU on every GPU: one result, not three, and below the
-  resolution.
+- No quantised format differed significantly from BF16. Both 4-bit formats scored ~1 point
+  lower on MMLU on all three GPUs: a consistent small deficit, but below the study's
+  resolution of about 1–2 points.
 - Below roughly a quarter of a million requests a day, paying an API per token was cheaper.
 
 ## Method

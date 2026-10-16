@@ -18,10 +18,10 @@ result files by [`analyse_study.py`](https://github.com/Lekeboi/Frugal_LLM/blob/
   differences of about 1–2.3 points; smaller ones are reported as "no difference detected",
   never as "no loss". On GSM8K (1,319 items) and an MMLU subset (1,000 items), no quantised
   format differed significantly from BF16 on any of the three GPUs that ran the quality tests
-  (the A100 was a speed-only reference). Both 4-bit formats ran ~1 point lower on MMLU on
-  every GPU. Since the GPUs answered the same questions, that's one result, not three:
-  −1.0 points (95% CI −2.2 to +0.2), below the ~2-point resolution of those comparisons.
-  GPTQ 8-bit was indistinguishable from BF16.
+  (the A100 was a speed-only reference). Both 4-bit formats scored ~1 point lower on MMLU on
+  all three GPUs: a consistent small deficit, but below our resolution of about 1–2 points,
+  and one result rather than three, since the GPUs answered the same questions. GPTQ 8-bit
+  was indistinguishable from BF16.
 - **4-bit is 2.1–2.9× faster for a single user and 1.1–1.6× faster under load** than BF16 on
   the same GPU.
 - **Hourly price did not rank cost per token.** At 64 concurrent requests the two consumer
@@ -59,15 +59,17 @@ For a 7B-class model served with vLLM, on tasks like these:
 ## What this is not
 
 Not new: engine comparisons and quantisation evaluations are plentiful, from peer-reviewed
-vLLM-against-TGI studies to vendor benchmarks. Nothing here is claimed to be first. The
-closest prior work found is [Bench360](https://arxiv.org/abs/2511.16682) (Stuhlmann, Fadel
-Argerich and Fürst, 2025), which measures quality alongside speed and energy on L4, A10 and
-A30 GPUs, but compares smaller full-precision models with larger quantised ones, so model
-size and precision change together, and it measures cost in energy per token, not dollars.
-This study holds the model fixed and varies only its
-precision, tests the quality difference with paired statistics against a measured noise
-floor, adds consumer GPUs, and prices the result against an API, by a method fixed in advance
-and from raw data anyone can check.
+vLLM-against-TGI studies to vendor benchmarks. Nothing here is claimed to be first.
+
+The closest prior work found is [Bench360](https://arxiv.org/abs/2511.16682) (arXiv:2511.16682;
+Stuhlmann, Fadel Argerich and Fürst, 2025), which measures task quality and system metrics
+across four inference engines on L4, A10 and A30 GPUs under a 24 GB memory budget. It varies
+model size and precision together (for example Gemma-2 9B at FP16 against 27B at INT4), so it
+does not isolate the effect of precision, and its cost analysis is energy-based. This study
+holds the model fixed and varies only its precision, tests the quality difference with paired
+statistics against a measured noise floor, and prices the result in dollars per token,
+measured from outside through the OpenAI-compatible API, by a method fixed in advance and
+from raw data anyone can check.
 
 ## 1. The harness
 
@@ -189,8 +191,9 @@ GPUs.
 
 **No difference was detected for any format on any GPU.** Every interval includes zero.
 
-Both 4-bit formats ran ~1 point lower on MMLU on every GPU. Since the GPUs answered the same
-questions, that's one result, not three: they used the same weights, and about 30 of the 33
+Both 4-bit formats scored ~1 point lower on MMLU on all three GPUs: a consistent small
+deficit, but below our resolution of about 1–2 points. The consistency is one result, not
+three: the GPUs answered the same questions with the same weights, and about 30 of the 33
 MMLU questions AWQ lost were the same on all three. An exploratory test
 (not in the pre-registered plan; [study-protocol.md](study-protocol.md), change 5) therefore
 treats the item, not the GPU, as the unit, averaging each item's difference over the GPUs:

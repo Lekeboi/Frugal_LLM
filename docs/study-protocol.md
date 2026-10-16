@@ -41,7 +41,7 @@ verified).
 |---|---|---|
 | 1 | NVIDIA RTX 3090, 24 GB | Consumer card many self-hosters own or rent cheaply |
 | 2 | NVIDIA L4, 24 GB | The entry inference card of the major clouds |
-| Reference | NVIDIA A100 80 GB | The class published benchmarks use; latency only, to anchor the results |
+| Reference | NVIDIA A100 80 GB | A class many published benchmarks use; latency only, to anchor the results |
 
 All tiers rented from RunPod **Secure Cloud** (RunPod's own data centres, for consistent
 hardware), hourly rates recorded as paid with their date. Stock varies by the hour, so if a
@@ -156,3 +156,7 @@ table or chart can be regenerated or checked with `report`, `compare` and `cost`
    permutation, bootstrap interval, Holm across every format and both tasks, BF16 rerun as
    control). It was not planned, was chosen after seeing the pattern, and is reported as
    exploratory; the pre-registered per-GPU comparisons are unchanged.
+6. **Wording** (2026-10-16). The hardware table called the A100 "the class published
+   benchmarks use". That overstated it: some published work runs on smaller cards (Bench360
+   uses L4, A10 and A30), so it now reads "a class many published benchmarks use". No method
+   or result changes.
