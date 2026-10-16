@@ -17,9 +17,11 @@ uvx frugal-llm bench --url http://localhost:8000/v1 --model <name>
 in four formats on an RTX 3090, RTX 4090, L4 and A100, with quality measured against BF16 and
 cost compared with the only API still serving the model per token.
 
-- No quantised format showed a detectable accuracy loss on GSM8K or MMLU.
-- 4-bit weights were 2.1–2.9× faster for a single user.
-- The consumer cards produced tokens at about half the cost of an L4 or A100.
+- Hourly price did not predict cost per token: the L4 was the most expensive per token, and
+  the consumer RTX 3090 and 4090 cost about half as much.
+- No quantised format showed a significant accuracy loss; 4-bit may cost about a point on
+  MMLU, below the study's resolution.
+- Below roughly a quarter of a million requests a day, paying an API per token was cheaper.
 
 ## Method
 

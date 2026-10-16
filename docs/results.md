@@ -14,10 +14,13 @@ result files by [`analyse_study.py`](https://github.com/Lekeboi/Frugal_LLM/blob/
 
 ## Summary
 
-- **No format showed a detectable accuracy loss.** On GSM8K (1,319 items) and an MMLU subset
-  (1,000 items), every quantised format's difference from BF16 was within run-to-run noise on
-  all three GPUs that ran the quality tests. The comparisons could detect differences of about
-  1–2.3 points; smaller losses cannot be ruled out.
+- **No format showed a significant accuracy loss, but 4-bit may cost about a point on MMLU.**
+  On GSM8K (1,319 items) and an MMLU subset (1,000 items), no quantised format differed
+  significantly from BF16 on any of the three GPUs that ran the quality tests (the A100 was a
+  speed-only reference). Both 4-bit formats did score about one point lower on MMLU on every
+  GPU; taken together, item by item, that is −1.0 points (95% CI −2.2 to +0.2), not
+  significant, so a loss of up to about two points cannot be ruled out. GPTQ 8-bit was
+  indistinguishable from BF16.
 - **4-bit is 2.1–2.9× faster for a single user and 1.1–1.6× faster under load** than BF16 on
   the same GPU.
 - **Hourly price did not rank cost per token.** At 64 concurrent requests the two consumer
@@ -34,15 +37,17 @@ result files by [`analyse_study.py`](https://github.com/Lekeboi/Frugal_LLM/blob/
 
 For a 7B-class model served with vLLM, on tasks like these:
 
-- **Pick a GPU by cost per token at your load, not by hourly price.** The L4, second-cheapest to
-  rent, was the most expensive to run; the RTX 3090 and 4090 were the cheapest. Measure your own endpoint before choosing:
-  `frugal-llm bench` takes one command, and the hourly rate turns its throughput into a cost.
-- **Quantise.** 4-bit weights showed no detectable accuracy loss here and were up to 2.9×
-  faster. If you cannot accept a possible one-point loss on knowledge questions, GPTQ 8-bit's
-  accuracy stayed within run-to-run noise of BF16 and it was still 1.1–1.9× faster.
-- **Below a few hundred thousand requests a day, pay per token,** if a provider serves the
-  model you want. Above that, a single rented RTX 3090 or 4090 is cheaper, provided the
-  traffic is steady enough to keep it busy.
+- **Pick a GPU by cost per token at your load, not by hourly price.** The L4, second-cheapest
+  to rent, was the most expensive to run; the RTX 3090 and 4090 were the cheapest. Measure
+  your own endpoint before choosing: `frugal-llm bench` takes one command, and the hourly rate
+  turns its throughput into a cost.
+- **Quantise, knowing the likely price.** 4-bit weights were up to 2.9× faster, with no
+  significant accuracy loss but a possible one-point loss on knowledge questions. If that
+  matters, GPTQ 8-bit was indistinguishable from BF16 and still 1.1–1.9× faster.
+- **Below roughly a quarter of a million requests a day, paying per token is cheaper.** That is
+  the break-even for a single RTX 3090 kept steadily busy, and higher for every other GPU
+  measured. Self-host for privacy, control or latency, not to save money, unless your traffic
+  is that high and that steady.
 - **Do not assume an API will keep serving a given model, or serve it at full precision.**
   Of three providers listing this model, one served it per token; it did not say at what
   precision, and its answers diverged from full precision as much as a 4-bit model's.
@@ -53,9 +58,14 @@ For a 7B-class model served with vLLM, on tasks like these:
 ## What this is not
 
 Not new: engine comparisons and quantisation evaluations are plentiful, from peer-reviewed
-vLLM-against-TGI studies to vendor benchmarks. Nothing here is claimed to be first. What this
-study adds is a measurement on GPUs people can afford to rent, with quality loss measured
-alongside speed and cost, by a method fixed in advance, from raw data anyone can check.
+vLLM-against-TGI studies to vendor benchmarks. Nothing here is claimed to be first. The
+closest prior work found is [Bench360](https://arxiv.org/abs/2511.16682) (Stuhlmann, Fadel
+Argerich and Fürst, 2025), which measures quality alongside speed and energy on L4, A10 and
+A30 GPUs, but compares smaller full-precision models with larger quantised ones, so model
+size and precision change together. This study holds the model fixed and varies only its
+precision, tests the quality difference with paired statistics against a measured noise
+floor, adds consumer GPUs, and prices the result against an API, by a method fixed in advance
+and from raw data anyone can check.
 
 ## 1. The harness
 
@@ -85,7 +95,9 @@ billing), and the API quality check about USD 0.10.
 | RTX 4090 | 0.89 | 2,102 | 3,075 | 3,000 | 2,464 |
 | A100 80GB PCIe | 1.79 | 2,772 | 3,134 | — | — |
 
-The A100 is a reference point and ran latency only (BF16 and AWQ). Each figure is the median
+Hourly rates are RunPod Secure Cloud on-demand prices on 15 October 2026, the day each pod
+was rented. The A100 is a reference point and, as planned before any result, ran latency only
+(BF16 and AWQ). Each figure is the median
 of three repeats; the full tables, with time to first token and inter-token latency at 1, 4,
 16 and 64 concurrent requests, are in each tier's summary.
 
@@ -172,10 +184,25 @@ GPUs.
 differences under about 1–2.3 points (depending on the comparison) are below this study's
 resolution, so "no difference detected" is not "no loss".
 
-Both 4-bit formats come out about one point lower on MMLU on all three GPUs. Because every
-GPU answered the same questions, this agreement shows the result is reproducible; it is not a
-second, independent sample, and it does not make the difference significant. A larger
-question set would be needed to say whether a one-point MMLU loss is real.
+Both 4-bit formats come out about one point lower on MMLU on all three GPUs. That agreement is
+not three pieces of evidence: the GPUs answered the same questions with the same weights, and
+about 30 of the 33 MMLU questions AWQ lost were the same on all three. An exploratory test
+(not in the pre-registered plan; [study-protocol.md](study-protocol.md), change 5) therefore
+treats the item, not the GPU, as the unit, averaging each item's difference over the GPUs:
+
+| Format, item-level across the three GPUs | GSM8K, points (95% CI) | MMLU, points (95% CI) |
+|---|---:|---:|
+| BF16 rerun (control) | −0.1 (−0.5 to +0.4) | −0.0 (−0.3 to +0.2) |
+| AWQ 4-bit | −0.8 (−2.0 to +0.5) | −0.9 (−2.3 to +0.5) |
+| GPTQ 4-bit | −0.0 (−1.2 to +1.2) | −1.1 (−2.7 to +0.4) |
+| GPTQ 8-bit | +0.0 (−0.7 to +0.7) | +0.1 (−0.5 to +0.6) |
+| Both 4-bit formats | −0.4 (−1.4 to +0.6) | −1.0 (−2.2 to +0.2), p = 0.10 |
+
+None is significant (Holm-corrected p ≥ 0.81 across all eight tests; the uncorrected p for
+both 4-bit formats on MMLU is 0.10). The honest reading: 4-bit may cost about one point on
+MMLU, a loss of up to about two points cannot be ruled out, and a larger question set would
+be needed to settle it. [`scripts/pooled_quality.py`](https://github.com/Lekeboi/Frugal_LLM/blob/master/scripts/pooled_quality.py)
+reproduces the table.
 
 ![Accuracy difference from BF16, RTX 4090](results/quality-rtx4090.png)
 
@@ -189,8 +216,11 @@ Quantised formats change answers far more than they change accuracy:
 | GPTQ 8-bit | 95.5–95.7% | 98.3–99.3% |
 | AWQ / GPTQ 4-bit | 91.6–92.5% | 91.1–92.3% |
 
-(Ranges span the three GPUs.) 8-bit is close to the noise floor; 4-bit changes about one answer
-in twelve, gaining roughly as many right answers as it loses.
+(Ranges span the three GPUs.) 8-bit is close to the noise floor. 4-bit changes about one final
+answer in twelve, and most of those changes cancel out: GPTQ 4-bit on GSM8K lost and gained
+about 38 right answers each. Where they do not cancel, the gap is small: AWQ on GSM8K lost
+about 46 and gained about 36, and both 4-bit formats on MMLU lost 32–39 and gained 23–27,
+which is the one-point deficit above.
 
 ### The API
 

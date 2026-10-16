@@ -147,3 +147,12 @@ table or chart can be regenerated or checked with `report`, `compare` and `cost`
    OpenRouter does not report the upstream model's precision, and frugal-llm does not record
    which upstream served each request; Phala was the only provider listed, and served a
    test request.
+5. **Exploratory cross-GPU quality test** (2026-10-16, after all results). Both 4-bit
+   formats scored about one point below BF16 on MMLU on every GPU, which invited pooling the
+   GPUs. They answered the same items with the same weights (about 30 of AWQ's 33 lost MMLU
+   items were the same on all three), so they are not independent samples and are not
+   pooled as if they were. Instead [`scripts/pooled_quality.py`](../scripts/pooled_quality.py)
+   averages each item's difference over the GPUs and tests the mean over items (sign-flip
+   permutation, bootstrap interval, Holm across every format and both tasks, BF16 rerun as
+   control). It was not planned, was chosen after seeing the pattern, and is reported as
+   exploratory; the pre-registered per-GPU comparisons are unchanged.
