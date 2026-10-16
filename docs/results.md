@@ -208,7 +208,8 @@ treats the item, not the GPU, as the unit, averaging each item's difference over
 
 None is significant (Holm-corrected p ≥ 0.81 across all eight tests; the uncorrected p for
 both 4-bit formats on MMLU is 0.10). The honest reading: 4-bit may cost about one point on
-MMLU, a loss of up to about two points cannot be ruled out, and a larger question set would
+MMLU, a loss of up to about 2.3 points (AWQ) or 2.7 (GPTQ 4-bit) cannot be ruled out, and a
+larger question set would
 be needed to settle it. [`scripts/pooled_quality.py`](https://github.com/Lekeboi/Frugal_LLM/blob/master/scripts/pooled_quality.py)
 reproduces the table.
 
@@ -218,7 +219,7 @@ A narrower item-level test of the two 4-bit formats on MMLU alone agrees: AWQ �
 
 ![Accuracy difference from BF16, RTX 4090](results/quality-rtx4090.png)
 
-### Different is not worse
+### Different is not the same as worse
 
 Quantised formats change answers far more than they change accuracy:
 
@@ -228,11 +229,22 @@ Quantised formats change answers far more than they change accuracy:
 | GPTQ 8-bit | 95.5–95.7% | 98.3–99.3% |
 | AWQ / GPTQ 4-bit | 91.6–92.5% | 91.1–92.3% |
 
-(Ranges span the three GPUs.) 8-bit is close to the noise floor. 4-bit changes about one final
-answer in twelve, and most of those changes cancel out: GPTQ 4-bit on GSM8K lost and gained
-about 38 right answers each. Where they do not cancel, the gap is small: AWQ on GSM8K lost
-about 46 and gained about 36, and both 4-bit formats on MMLU lost 32–39 and gained 23–27,
-which is the one-point deficit above.
+(Ranges span the three GPUs.) 8-bit is close to the noise floor; 4-bit changes about one final
+answer in twelve. Counting only the answers that changed between right and wrong:
+
+| | GSM8K, right→wrong / wrong→right | MMLU, right→wrong / wrong→right |
+|---|---:|---:|
+| BF16 rerun (control) | 13–18 / 11–16 | 2–4 / 2–3 |
+| GPTQ 8-bit | 17–20 / 18–20 | 3–7 / 4–7 |
+| GPTQ 4-bit | 37–39 / 37–40 | 36–39 / 26–27 |
+| AWQ 4-bit | 45–47 / 35–36 | 32–33 / 23–24 |
+
+GPTQ 8-bit breaks even on both tasks, as the BF16 rerun does. Of the four 4-bit comparisons,
+only GPTQ 4-bit on GSM8K breaks even; in the other three, 4-bit turns 9–12 more right answers
+wrong than it turns wrong answers right, which is the deficit of up to about one point above.
+So 4-bit outputs differ from BF16 on many items, and on this model and these tasks the net
+cost is bounded: the item-level 95% intervals put the MMLU loss at no more than about 2.3
+points for AWQ and 2.7 for GPTQ 4-bit.
 
 ### The API
 
